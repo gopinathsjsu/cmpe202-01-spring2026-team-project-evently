@@ -11,3 +11,10 @@
 ```sh
 uv run backend
 ```
+
+## CI
+
+- run tests with `uv run pytest`
+- run type-checking with `uv run mypy`
+- run the linter with `uv run ruff check`
+- run the formatter with `uv ruff format`
