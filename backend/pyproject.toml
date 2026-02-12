@@ -21,9 +21,6 @@ dev = [
 [project.urls]
 Repository = "https://github.com/gopinathsjsu/cmpe202-01-spring2026-team-project-evently"
 
-[tool.setuptools.packages.find]
-include = ["backend*"]
-
 [tool.ruff]
 line-length = 88
 indent-width = 4
