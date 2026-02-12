@@ -34,7 +34,7 @@ jobs:
               - 'backend/ruff.toml'
               - 'backend/.ruff.toml'
 
-  type-checking:
+  mypy:
     needs: detect_changes
     if: github.event_name == 'workflow_dispatch' ||
       needs.detect_changes.outputs.python == 'true'
@@ -62,7 +62,7 @@ jobs:
         working-directory: backend
         run: uv run mypy
 
-  tests:
+  pytest:
     needs: detect_changes
     if: github.event_name == 'workflow_dispatch' ||
       needs.detect_changes.outputs.python == 'true'
@@ -90,7 +90,7 @@ jobs:
         working-directory: backend
         run: uv run pytest
 
-  lints:
+  ruff-lint:
     needs: detect_changes
     if: github.event_name == 'workflow_dispatch' ||
       needs.detect_changes.outputs.python == 'true'
@@ -106,7 +106,7 @@ jobs:
         with:
           src: "./backend"
 
-  format:
+  ruff-format:
     needs: detect_changes
     if: github.event_name == 'workflow_dispatch' ||
       needs.detect_changes.outputs.python == 'true'
