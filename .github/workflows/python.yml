@@ -26,13 +26,13 @@ jobs:
         with:
           filters: |
             python:
-              - '**/*.py'
-              - '**/*.pyi'
-              - 'pyproject.toml'
-              - 'uv.lock'
-              - 'mypy.ini'
-              - 'ruff.toml'
-              - '.ruff.toml'
+              - 'backend/**/*.py'
+              - 'backend/**/*.pyi'
+              - 'backend/pyproject.toml'
+              - 'backend/uv.lock'
+              - 'backend/mypy.ini'
+              - 'backend/ruff.toml'
+              - 'backend/.ruff.toml'
 
   type-checking:
     needs: detect_changes
@@ -55,9 +55,11 @@ jobs:
         run: uv python install 3.13
 
       - name: Install Dependencies
+        working-directory: backend
         run: uv sync --dev
 
       - name: Run Mypy
+        working-directory: backend
         run: uv run mypy
 
   tests:
@@ -81,9 +83,11 @@ jobs:
         run: uv python install 3.13
 
       - name: Install Dependencies
+        working-directory: backend
         run: uv sync --dev
 
       - name: Run Pytest
+        working-directory: backend
         run: uv run pytest
 
   lints:
@@ -99,6 +103,8 @@ jobs:
 
       - name: Run Ruff
         uses: astral-sh/ruff-action@v3
+        with:
+          src: "./backend"
 
   format:
     needs: detect_changes
@@ -115,4 +121,5 @@ jobs:
       - name: Run Ruff Formatting Checks
         uses: astral-sh/ruff-action@v3
         with:
+          src: "./backend"
           args: "format --check --diff"
