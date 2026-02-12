@@ -38,6 +38,9 @@ exclude = [
 
 target-version = "py313"
 
+[tool.uv]
+package = true
+
 [tool.mypy]
 files = ["backend", "tests"]
 strict = true
