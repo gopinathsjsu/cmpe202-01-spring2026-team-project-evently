@@ -2,12 +2,16 @@ import asyncio
 import logging
 from collections.abc import Sequence
 
+from .clap import parse_args
+
 
 async def main(argv: Sequence[str] | None = None) -> None:
+    cli_args = parse_args(argv)
+
     logging.basicConfig(
         format="[%(levelname)s][%(asctime)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
+        level=cli_args.log_level,
     )
 
     logging.getLogger(__name__).info("Hello from backend!")
