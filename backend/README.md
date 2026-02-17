@@ -47,4 +47,4 @@ Alternatively, you can run `just dev`
 - run tests with `uv run pytest`
 - run type-checking with `uv run mypy`
 - run the linter with `uv run ruff check`
-- run the formatter with `uv ruff format`
+- run the formatter with `uv run ruff format`
