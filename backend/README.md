@@ -6,7 +6,7 @@
 
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
 - [`just`](https://github.com/casey/just#packages)
-- [`docker-compose`](https://docs.docker.com/compose/install/)
+- [Docker (with Compose v2: `docker compose`)](https://docs.docker.com/get-docker/)
 
 ### Installing Python Dependencies
 
