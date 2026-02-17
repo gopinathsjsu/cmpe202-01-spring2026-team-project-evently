@@ -21,6 +21,8 @@
 1. Run `just db` to start the database
 2. Run `uv run backend` to start the backend
 
+Alternatively, you can run `just dev`
+
 ## CI
 
 > [!TIP]
