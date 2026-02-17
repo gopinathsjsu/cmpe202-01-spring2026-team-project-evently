@@ -1,0 +1,25 @@
+# List available recipes
+default:
+    @just --list
+
+# Start MongoDB if not running, then run the backend
+dev:
+    @echo "Checking MongoDB status..."
+    @docker compose ps mongodb | grep -q "Up" || docker compose up -d mongodb
+    @echo "Starting backend..."
+    uv run backend
+
+# Start only MongoDB
+db:
+    docker compose up -d mongodb
+
+# Stop MongoDB
+db-stop:
+    docker compose down
+
+# View MongoDB logs
+db-logs:
+    docker compose logs -f mongodb
+
+# Restart everything
+restart: db-stop dev
