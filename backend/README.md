@@ -14,19 +14,9 @@ The backend requires the following environment variables to be set:
 
 **Setup:**
 
-1. Copy `.env.example` to `.env`:
-
-```sh
-cp .env.example .env
-```
-
-1. Edit `.env` with your desired credentials
-
-2. Source the environment file before running commands:
-
-```sh
-source .env
-```
+1. Copy `.env.example` to `.env` with `cp .env.example .env`
+2. Edit `.env` with your desired credentials
+3. Source the environment file before running commands with `source .env`
 
 ### Required External Tools
 
