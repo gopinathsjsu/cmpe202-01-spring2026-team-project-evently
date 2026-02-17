@@ -1,7 +1,9 @@
 import asyncio
 import logging
 from collections.abc import Sequence
+from typing import Any
 
+from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
 from .clap import parse_args
@@ -18,19 +20,19 @@ async def main(argv: Sequence[str] | None = None) -> None:
 
     logging.getLogger(__name__).info("Evently backend starting...")
 
-    db_client: AsyncMongoClient[dict[str, object]] = AsyncMongoClient(
-        cli_args.database_url
-    )
+    db_client: AsyncMongoClient[
+        dict[str, Any]
+    ]  # placeholder type hint until we settle on data models
+    async with AsyncMongoClient(cli_args.database_url) as db_client:
+        logging.getLogger(__name__).debug("Pinging MongoDB...")
+        await db_client.admin.command("ping")
 
-    logging.getLogger(__name__).debug("Pinging MongoDB...")
-    await db_client.admin.command("ping")
+        db: AsyncDatabase[dict[str, Any]] = db_client["evently"]
+        logging.getLogger(__name__).debug("Database obtained...")
 
-    db = db_client["evently"]
-    logging.getLogger(__name__).debug("Database obtained...")
-
-    logging.getLogger(__name__).debug(
-        "Current collection names: %s", await db.list_collection_names()
-    )
+        logging.getLogger(__name__).debug(
+            "Current collection names: %s", await db.list_collection_names()
+        )
 
     logging.getLogger(__name__).info("Exiting...")
 
