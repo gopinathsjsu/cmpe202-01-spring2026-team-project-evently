@@ -4,7 +4,6 @@ default:
 
 # Start MongoDB if not running, then run the backend
 dev:
-    @echo "Checking MongoDB status..."
     @docker compose up -d mongodb
     @echo "Starting backend..."
     uv run backend
