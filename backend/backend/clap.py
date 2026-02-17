@@ -22,7 +22,7 @@ def parse_args(argv: Sequence[str] | None = None) -> CommandLineArguments:
     parser.add_argument(
         "--database-url",
         default=os.getenv("DATABASE_URL"),
-        required=os.getenv("DATABASE_URL") is None,
+        required=(env_db_url := os.getenv("DATABASE_URL")) is None or env_db_url == "",
         help="URL for the database. Takes priority over the `DATABASE_URL` environment variable. Required if DATABASE_URL is not set.",
     )
     parser.add_argument(
