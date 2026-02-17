@@ -2,14 +2,27 @@
 default:
     @just --list
 
+# Check required environment variables
+check-env:
+    @if [ -z "${DB_USERNAME:-}" ]; then \
+        echo "Error: DB_USERNAME environment variable is not set"; \
+        echo "Please source your .env file: source .env"; \
+        exit 1; \
+    fi
+    @if [ -z "${DB_PASSWORD:-}" ]; then \
+        echo "Error: DB_PASSWORD environment variable is not set"; \
+        echo "Please source your .env file: source .env"; \
+        exit 1; \
+    fi
+
 # Start MongoDB if not running, then run the backend
-dev:
+dev: check-env
     @docker compose up -d mongodb
     @echo "Starting backend..."
     uv run backend
 
 # Start only MongoDB
-db:
+db: check-env
     docker compose up -d mongodb
 
 # Stop MongoDB

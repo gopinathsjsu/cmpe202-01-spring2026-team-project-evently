@@ -2,6 +2,32 @@
 
 ## Environment Setup
 
+### Environment Variables
+
+The backend requires the following environment variables to be set:
+
+| Variable       | Description                 | Example                                    |
+| -------------- | --------------------------- | ------------------------------------------ |
+| `DB_USERNAME`  | MongoDB root username       | `admin`                                    |
+| `DB_PASSWORD`  | MongoDB root password       | `password`                                 |
+| `DATABASE_URL` | Full MongoDB connection URL | `mongodb://admin:password@localhost:27017` |
+
+**Setup:**
+
+1. Copy `.env.example` to `.env`:
+
+```sh
+cp .env.example .env
+```
+
+1. Edit `.env` with your desired credentials
+
+2. Source the environment file before running commands:
+
+```sh
+source .env
+```
+
 ### Required External Tools
 
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
