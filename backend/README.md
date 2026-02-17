@@ -16,7 +16,7 @@
 ## Running the Backend
 
 > [!TIP]
-> See the available `just` recipies by running `just`
+> See the available `just` recipes by running `just`
 
 1. Run `just db` to start the database
 2. Run `uv run backend` to start the backend
