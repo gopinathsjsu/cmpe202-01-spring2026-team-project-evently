@@ -32,11 +32,18 @@ exclude = [
 
 target-version = "py313"
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/backend"]
+
 [tool.uv]
 package = true
 
 [tool.mypy]
-files = ["backend", "tests"]
+files = ["src/backend", "tests"]
 strict = true
 
 [dependency-groups]

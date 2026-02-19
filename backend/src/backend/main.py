@@ -6,7 +6,7 @@ from typing import Any
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
-from .clap import parse_args
+from .cli import parse_args
 
 
 async def main(argv: Sequence[str] | None = None) -> None:
