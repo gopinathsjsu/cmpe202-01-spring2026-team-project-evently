@@ -1,0 +1,37 @@
+# List available recipes
+default:
+    @just --list
+
+# Check required environment variables
+check-env:
+    @if [ -z "${DB_USERNAME:-}" ]; then \
+        echo "Error: DB_USERNAME environment variable is not set"; \
+        echo "Please source your .env file: source .env"; \
+        exit 1; \
+    fi
+    @if [ -z "${DB_PASSWORD:-}" ]; then \
+        echo "Error: DB_PASSWORD environment variable is not set"; \
+        echo "Please source your .env file: source .env"; \
+        exit 1; \
+    fi
+
+# Start MongoDB if not running, then run the backend
+dev: check-env
+    @docker compose up -d mongodb
+    @echo "Starting backend..."
+    uv run backend
+
+# Start only MongoDB
+db: check-env
+    docker compose up -d mongodb
+
+# Stop MongoDB
+db-stop:
+    docker compose down
+
+# View MongoDB logs
+db-logs:
+    docker compose logs -f mongodb
+
+# Restart everything
+restart: db-stop dev
