@@ -42,6 +42,9 @@ packages = ["src/backend"]
 [tool.uv]
 package = true
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [tool.mypy]
 files = ["src/backend", "tests"]
 strict = true
