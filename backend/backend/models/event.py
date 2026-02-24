@@ -24,6 +24,13 @@ class Location(BaseModel):
     longitude: float
     latitude: float
 
+    venue_name: str | None = None
+
+    address: str
+    city: str
+    state: str
+    zip_code: str
+
 
 class Event(BaseModel):
     id: int
