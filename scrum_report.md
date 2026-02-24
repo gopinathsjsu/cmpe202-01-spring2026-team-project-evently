@@ -13,3 +13,8 @@
     - tailwind
     - shadcn
 - architecture diagram
+
+## Week 2/15 - 2/21
+
+- frontend project setup
+- backend project setup
