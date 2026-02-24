@@ -67,6 +67,18 @@ jobs:
     if: github.event_name == 'workflow_dispatch' ||
       needs.detect_changes.outputs.python == 'true'
     runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:8.2.5
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          -e MONGO_INITDB_ROOT_USERNAME=
+          -e MONGO_INITDB_ROOT_PASSWORD=
+        ports:
+          - 27017:27017
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -88,6 +100,8 @@ jobs:
 
       - name: Run Pytest
         working-directory: backend
+        env:
+          DATABASE_URL: mongodb://localhost:27017
         run: uv run pytest
 
   ruff-lint:
