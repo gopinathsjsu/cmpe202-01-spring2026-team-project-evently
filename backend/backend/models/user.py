@@ -27,7 +27,7 @@ class User(BaseModel):
     first_name: str
     last_name: str
 
-    email: EmailStr | None = None
+    email: EmailStr
     phone_number: str | None = None
 
     roles: set[GlobalRole] = Field(default_factory=lambda: {GlobalRole.User})
