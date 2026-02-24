@@ -85,6 +85,14 @@ def attendance_data() -> dict[str, Any]:
     }
 
 
+@pytest.fixture
+def event_favorite_data() -> dict[str, Any]:
+    return {
+        "event_id": 1,
+        "user_id": 1,
+    }
+
+
 @pytest_asyncio.fixture
 async def db() -> AsyncIterator[AsyncDatabase[dict[str, Any]]]:
     """Yield a handle to the ``evently_test`` database.
