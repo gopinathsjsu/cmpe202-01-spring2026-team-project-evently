@@ -42,4 +42,5 @@ def cli(argv: Sequence[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
+    # change to trigger ci
     cli()
