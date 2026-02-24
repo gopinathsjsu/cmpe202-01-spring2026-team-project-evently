@@ -1,3 +1,4 @@
+from datetime import datetime as DateTime
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -13,4 +14,4 @@ class EventAttendance(BaseModel):
     event_id: int
     user_id: int
     status: AttendanceStatus = AttendanceStatus.Going
-    checked_in_at: str | None = None
+    checked_in_at: DateTime | None = None
