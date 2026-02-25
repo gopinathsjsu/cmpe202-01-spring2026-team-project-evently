@@ -19,6 +19,13 @@ backend = "backend.main:cli"
 [project.urls]
 Repository = "https://github.com/gopinathsjsu/cmpe202-01-spring2026-team-project-evently"
 
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
 [tool.ruff]
 line-length = 88
 indent-width = 4
