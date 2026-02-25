@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query  # type: ignore[import-untyped]
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from pymongo import ASCENDING, DESCENDING
 from pymongo.asynchronous.database import AsyncDatabase
 
+from backend.db import get_db
 from backend.models.event import Event, EventCategory
 
 router = APIRouter()
@@ -32,42 +33,36 @@ class PaginatedEvents(BaseModel):
     page_size: int
 
 
-async def _get_db() -> AsyncDatabase[dict[str, Any]]:  # pragma: no cover
-    """Placeholder replaced at app startup via dependency_overrides."""
-    from backend.api import get_db  # type: ignore[misc]
-
-    async for db in get_db():
-        return db
-    raise RuntimeError("get_db yielded nothing")
+DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 
 
-@router.get("/", response_model=PaginatedEvents)  # type: ignore[misc]
+@router.get("/", response_model=PaginatedEvents)
 async def list_events(
-    db: AsyncDatabase[dict[str, Any]] = Depends(_get_db),
-    q: str | None = Query(
-        default=None,
-        description="Free-text search across title and about fields.",
-    ),
-    category: EventCategory | None = Query(
-        default=None,
-        description="Filter events by category.",
-    ),
-    start_from: datetime | None = Query(
-        default=None,
-        description="Return events starting at or after this datetime.",
-    ),
-    start_to: datetime | None = Query(
-        default=None,
-        description="Return events starting at or before this datetime.",
-    ),
-    sort_by: Literal["start_time", "price", "title"] = Query(
-        default="start_time",
-        description="Field to sort by.",
-    ),
-    sort_order: Literal["asc", "desc"] = Query(
-        default="asc",
-        description="Sort direction.",
-    ),
+    db: DbDep,
+    q: Annotated[
+        str | None,
+        Query(description="Free-text search across title and about fields."),
+    ] = None,
+    category: Annotated[
+        EventCategory | None,
+        Query(description="Filter events by category."),
+    ] = None,
+    start_from: Annotated[
+        datetime | None,
+        Query(description="Return events starting at or after this datetime."),
+    ] = None,
+    start_to: Annotated[
+        datetime | None,
+        Query(description="Return events starting at or before this datetime."),
+    ] = None,
+    sort_by: Annotated[
+        Literal["start_time", "price", "title"],
+        Query(description="Field to sort by."),
+    ] = "start_time",
+    sort_order: Annotated[
+        Literal["asc", "desc"],
+        Query(description="Sort direction."),
+    ] = "asc",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 12,
 ) -> PaginatedEvents:

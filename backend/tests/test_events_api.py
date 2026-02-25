@@ -6,7 +6,7 @@ from httpx import ASGITransport, AsyncClient
 from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
-from backend.routes.events import _get_db
+from backend.db import get_db
 
 
 def _make_client(
@@ -14,7 +14,7 @@ def _make_client(
 ) -> tuple[Any, AsyncClient]:
     """Build an app with the DB dependency overridden and return both."""
     app = create_app()
-    app.dependency_overrides[_get_db] = lambda: db
+    app.dependency_overrides[get_db] = lambda: db
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client

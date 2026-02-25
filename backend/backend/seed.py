@@ -7,11 +7,14 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from datetime import datetime
 from typing import Any
 
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
+
+logger = logging.getLogger(__name__)
 
 SAMPLE_EVENTS: list[dict[str, Any]] = [
     {
@@ -612,23 +615,36 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
 
 
 async def seed() -> None:
+    logging.basicConfig(
+        format="[%(levelname)s][%(asctime)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        level=logging.INFO,
+    )
+
     url = os.getenv("DATABASE_URL", "")
     if not url:
-        print("ERROR: DATABASE_URL environment variable is not set.")
+        logger.error("DATABASE_URL environment variable is not set.")
         return
 
+    client: AsyncMongoClient[dict[str, Any]]
     async with AsyncMongoClient(url) as client:
-        db = client["evently"]
+        db: Any = client["evently"]
         collection = db["events"]
 
         existing = await collection.count_documents({})
         if existing > 0:
-            print(f"Database already contains {existing} events. Dropping and re-seeding...")
+            logger.info(
+                "Database already contains %d events. Dropping and re-seeding...",
+                existing,
+            )
             await collection.delete_many({})
 
         await collection.insert_many(SAMPLE_EVENTS)
         count = await collection.count_documents({})
-        print(f"Successfully seeded {count} sample events into the 'evently' database.")
+        logger.info(
+            "Successfully seeded %d sample events into the 'evently' database.",
+            count,
+        )
 
 
 if __name__ == "__main__":
