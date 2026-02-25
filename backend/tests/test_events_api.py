@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from httpx import ASGITransport, AsyncClient  # type: ignore[import-untyped]
+from httpx import ASGITransport, AsyncClient
 from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
@@ -15,7 +15,7 @@ def _make_client(
     """Build an app with the DB dependency overridden and return both."""
     app = create_app()
     app.dependency_overrides[_get_db] = lambda: db
-    transport = ASGITransport(app=app)  # type: ignore[arg-type]
+    transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client
 
