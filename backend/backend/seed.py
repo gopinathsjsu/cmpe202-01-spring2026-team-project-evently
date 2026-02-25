@@ -613,6 +613,28 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
     },
 ]
 
+ONLINE_EVENT_IDS = {2, 5, 13, 20, 24}
+
+SAMPLE_ATTENDANCE: list[dict[str, Any]] = [
+    {"event_id": eid, "user_id": uid, "status": "going", "checked_in_at": None}
+    for eid, uid_count in [
+        (1, 320), (2, 124), (3, 85), (4, 45), (5, 56),
+        (6, 234), (7, 150), (8, 18), (9, 90), (10, 75),
+        (11, 42), (12, 110), (13, 60), (14, 200), (15, 12),
+        (16, 20), (17, 180), (18, 25), (19, 300), (20, 95),
+        (21, 70), (22, 400), (23, 100), (24, 35),
+    ]
+    for uid in range(1, uid_count + 1)
+]
+
+SAMPLE_FAVORITES: list[dict[str, Any]] = [
+    {"event_id": eid, "user_id": uid}
+    for eid, uid_count in [
+        (1, 50), (2, 30), (6, 80), (7, 45), (14, 60), (17, 40),
+    ]
+    for uid in range(1, uid_count + 1)
+]
+
 
 async def seed() -> None:
     logging.basicConfig(
@@ -629,21 +651,35 @@ async def seed() -> None:
     client: AsyncMongoClient[dict[str, Any]]
     async with AsyncMongoClient(url) as client:
         db: Any = client["evently"]
-        collection = db["events"]
 
-        existing = await collection.count_documents({})
-        if existing > 0:
-            logger.info(
-                "Database already contains %d events. Dropping and re-seeding...",
-                existing,
+        for coll_name in ("events", "attendance", "event_favorites"):
+            existing = await db[coll_name].count_documents({})
+            if existing > 0:
+                logger.info("Dropping %d docs from '%s'...", existing, coll_name)
+                await db[coll_name].delete_many({})
+
+        enriched = []
+        for evt in SAMPLE_EVENTS:
+            enriched.append(
+                {
+                    **evt,
+                    "is_online": evt["id"] in ONLINE_EVENT_IDS,
+                    "image_url": None,
+                }
             )
-            await collection.delete_many({})
 
-        await collection.insert_many(SAMPLE_EVENTS)
-        count = await collection.count_documents({})
+        await db["events"].insert_many(enriched)
+        await db["attendance"].insert_many(SAMPLE_ATTENDANCE)
+        await db["event_favorites"].insert_many(SAMPLE_FAVORITES)
+
+        ev_count = await db["events"].count_documents({})
+        at_count = await db["attendance"].count_documents({})
+        fv_count = await db["event_favorites"].count_documents({})
         logger.info(
-            "Successfully seeded %d sample events into the 'evently' database.",
-            count,
+            "Seeded %d events, %d attendance records, %d favorites.",
+            ev_count,
+            at_count,
+            fv_count,
         )
 
 
