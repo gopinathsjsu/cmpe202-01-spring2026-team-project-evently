@@ -58,10 +58,12 @@ async def test_list_includes_attending_count(
 ) -> None:
     await _clean(db)
     await db["events"].insert_one(event_data)
-    await db["attendance"].insert_many([
-        {"event_id": 1, "user_id": i, "status": "going", "checked_in_at": None}
-        for i in range(1, 6)
-    ])
+    await db["attendance"].insert_many(
+        [
+            {"event_id": 1, "user_id": i, "status": "going", "checked_in_at": None}
+            for i in range(1, 6)
+        ]
+    )
     await db["attendance"].insert_one(
         {"event_id": 1, "user_id": 99, "status": "cancelled", "checked_in_at": None}
     )
@@ -99,10 +101,12 @@ async def test_search_by_title(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "title": "Summer Music Festival"},
-        {**event_data, "id": 2, "title": "Tech Conference"},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "title": "Summer Music Festival"},
+            {**event_data, "id": 2, "title": "Tech Conference"},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -118,10 +122,12 @@ async def test_search_by_about(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "about": "A wonderful jazz evening"},
-        {**event_data, "id": 2, "about": "Boring meeting"},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "about": "A wonderful jazz evening"},
+            {**event_data, "id": 2, "about": "Boring meeting"},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -142,10 +148,12 @@ async def test_filter_by_category(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "category": "Music"},
-        {**event_data, "id": 2, "category": "Sports"},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "category": "Music"},
+            {**event_data, "id": 2, "category": "Sports"},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -184,10 +192,12 @@ async def test_filter_by_is_online(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "is_online": False},
-        {**event_data, "id": 2, "is_online": True, "title": "Webinar"},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "is_online": False},
+            {**event_data, "id": 2, "is_online": True, "title": "Webinar"},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -203,10 +213,12 @@ async def test_filter_by_price_type_free(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "price": 0.0, "title": "Free Event"},
-        {**event_data, "id": 2, "price": 50.0, "title": "Paid Event"},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "price": 0.0, "title": "Free Event"},
+            {**event_data, "id": 2, "price": 50.0, "title": "Paid Event"},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -222,10 +234,12 @@ async def test_filter_by_price_type_paid(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "price": 0.0, "title": "Free Event"},
-        {**event_data, "id": 2, "price": 50.0, "title": "Paid Event"},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "price": 0.0, "title": "Free Event"},
+            {**event_data, "id": 2, "price": 50.0, "title": "Paid Event"},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -241,28 +255,33 @@ async def test_filter_by_date_range(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {
-            **event_data,
-            "id": 1,
-            "title": "Early",
-            "start_time": datetime(2026, 3, 1, 10, 0),
-            "end_time": datetime(2026, 3, 1, 12, 0),
-        },
-        {
-            **event_data,
-            "id": 2,
-            "title": "Late",
-            "start_time": datetime(2026, 9, 1, 10, 0),
-            "end_time": datetime(2026, 9, 1, 12, 0),
-        },
-    ])
+    await db["events"].insert_many(
+        [
+            {
+                **event_data,
+                "id": 1,
+                "title": "Early",
+                "start_time": datetime(2026, 3, 1, 10, 0),
+                "end_time": datetime(2026, 3, 1, 12, 0),
+            },
+            {
+                **event_data,
+                "id": 2,
+                "title": "Late",
+                "start_time": datetime(2026, 9, 1, 10, 0),
+                "end_time": datetime(2026, 9, 1, 12, 0),
+            },
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
         resp = await client.get(
             "/events/",
-            params={"start_from": "2026-06-01T00:00:00", "start_to": "2026-12-31T23:59:59"},
+            params={
+                "start_from": "2026-06-01T00:00:00",
+                "start_to": "2026-12-31T23:59:59",
+            },
         )
 
     body = resp.json()
@@ -280,10 +299,12 @@ async def test_sort_by_price_desc(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "title": "Cheap", "price": 10.0},
-        {**event_data, "id": 2, "title": "Expensive", "price": 100.0},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "title": "Cheap", "price": 10.0},
+            {**event_data, "id": 2, "title": "Expensive", "price": 100.0},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -300,10 +321,12 @@ async def test_sort_by_title_asc(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "title": "Zebra"},
-        {**event_data, "id": 2, "title": "Alpha"},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "title": "Zebra"},
+            {**event_data, "id": 2, "title": "Alpha"},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -373,13 +396,15 @@ async def test_get_event_detail(
 ) -> None:
     await _clean(db)
     await db["events"].insert_one(event_data)
-    await db["attendance"].insert_many([
-        {"event_id": 1, "user_id": i, "status": "going", "checked_in_at": None}
-        for i in range(1, 4)
-    ])
-    await db["event_favorites"].insert_many([
-        {"event_id": 1, "user_id": i} for i in range(1, 3)
-    ])
+    await db["attendance"].insert_many(
+        [
+            {"event_id": 1, "user_id": i, "status": "going", "checked_in_at": None}
+            for i in range(1, 4)
+        ]
+    )
+    await db["event_favorites"].insert_many(
+        [{"event_id": 1, "user_id": i} for i in range(1, 3)]
+    )
 
     _, client = _make_client(db)
     async with client:

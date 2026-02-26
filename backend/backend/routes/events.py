@@ -220,9 +220,7 @@ async def list_events(
         filters["start_time"] = time_filter
 
     sort_direction = ASCENDING if sort_order == "asc" else DESCENDING
-    sort_key = {"start_time": "start_time", "price": "price", "title": "title"}[
-        sort_by
-    ]
+    sort_key = {"start_time": "start_time", "price": "price", "title": "title"}[sort_by]
     skip = (page - 1) * page_size
 
     total = await collection.count_documents(filters)
@@ -262,9 +260,7 @@ async def list_events(
             )
         )
 
-    return PaginatedEvents(
-        items=items, total=total, page=page, page_size=page_size
-    )
+    return PaginatedEvents(items=items, total=total, page=page, page_size=page_size)
 
 
 # ---------------------------------------------------------------------------

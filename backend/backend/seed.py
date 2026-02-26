@@ -29,8 +29,14 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "category": "Music",
         "schedule": [
             {"start_time": datetime(2026, 6, 20, 12, 0), "description": "Gates open"},
-            {"start_time": datetime(2026, 6, 20, 14, 0), "description": "Opening act on Main Stage"},
-            {"start_time": datetime(2026, 6, 20, 20, 0), "description": "Headliner performance"},
+            {
+                "start_time": datetime(2026, 6, 20, 14, 0),
+                "description": "Opening act on Main Stage",
+            },
+            {
+                "start_time": datetime(2026, 6, 20, 20, 0),
+                "description": "Headliner performance",
+            },
         ],
         "location": {
             "longitude": -73.9654,
@@ -53,9 +59,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 7, 12, 17, 0),
         "category": "Conference",
         "schedule": [
-            {"start_time": datetime(2026, 7, 10, 9, 0), "description": "Registration and breakfast"},
-            {"start_time": datetime(2026, 7, 10, 10, 0), "description": "Opening keynote"},
-            {"start_time": datetime(2026, 7, 10, 14, 0), "description": "Afternoon workshops"},
+            {
+                "start_time": datetime(2026, 7, 10, 9, 0),
+                "description": "Registration and breakfast",
+            },
+            {
+                "start_time": datetime(2026, 7, 10, 10, 0),
+                "description": "Opening keynote",
+            },
+            {
+                "start_time": datetime(2026, 7, 10, 14, 0),
+                "description": "Afternoon workshops",
+            },
         ],
         "location": {
             "longitude": -122.4000,
@@ -78,8 +93,14 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 5, 15, 22, 0),
         "category": "Other",
         "schedule": [
-            {"start_time": datetime(2026, 5, 15, 18, 0), "description": "Doors open with welcome drinks"},
-            {"start_time": datetime(2026, 5, 15, 19, 0), "description": "Artist talk and Q&A"},
+            {
+                "start_time": datetime(2026, 5, 15, 18, 0),
+                "description": "Doors open with welcome drinks",
+            },
+            {
+                "start_time": datetime(2026, 5, 15, 19, 0),
+                "description": "Artist talk and Q&A",
+            },
         ],
         "location": {
             "longitude": -73.9580,
@@ -102,9 +123,15 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 4, 5, 8, 30),
         "category": "Sports",
         "schedule": [
-            {"start_time": datetime(2026, 4, 5, 7, 0), "description": "Warm-up and stretching"},
+            {
+                "start_time": datetime(2026, 4, 5, 7, 0),
+                "description": "Warm-up and stretching",
+            },
             {"start_time": datetime(2026, 4, 5, 7, 30), "description": "Flow sequence"},
-            {"start_time": datetime(2026, 4, 5, 8, 15), "description": "Cool-down and meditation"},
+            {
+                "start_time": datetime(2026, 4, 5, 8, 15),
+                "description": "Cool-down and meditation",
+            },
         ],
         "location": {
             "longitude": -118.4965,
@@ -127,9 +154,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 5, 20, 21, 0),
         "category": "Conference",
         "schedule": [
-            {"start_time": datetime(2026, 5, 20, 18, 0), "description": "Doors open and networking"},
-            {"start_time": datetime(2026, 5, 20, 19, 0), "description": "Lightning pitch round"},
-            {"start_time": datetime(2026, 5, 20, 20, 0), "description": "Open networking"},
+            {
+                "start_time": datetime(2026, 5, 20, 18, 0),
+                "description": "Doors open and networking",
+            },
+            {
+                "start_time": datetime(2026, 5, 20, 19, 0),
+                "description": "Lightning pitch round",
+            },
+            {
+                "start_time": datetime(2026, 5, 20, 20, 0),
+                "description": "Open networking",
+            },
         ],
         "location": {
             "longitude": -74.0060,
@@ -152,9 +188,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 4, 18, 23, 0),
         "category": "Comedy",
         "schedule": [
-            {"start_time": datetime(2026, 4, 18, 20, 0), "description": "Doors and bar open"},
-            {"start_time": datetime(2026, 4, 18, 20, 30), "description": "Host introduction"},
-            {"start_time": datetime(2026, 4, 18, 20, 45), "description": "First comedian"},
+            {
+                "start_time": datetime(2026, 4, 18, 20, 0),
+                "description": "Doors and bar open",
+            },
+            {
+                "start_time": datetime(2026, 4, 18, 20, 30),
+                "description": "Host introduction",
+            },
+            {
+                "start_time": datetime(2026, 4, 18, 20, 45),
+                "description": "First comedian",
+            },
         ],
         "location": {
             "longitude": -74.0001,
@@ -177,9 +222,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 8, 8, 20, 0),
         "category": "Festival",
         "schedule": [
-            {"start_time": datetime(2026, 8, 8, 11, 0), "description": "Festival gates open"},
-            {"start_time": datetime(2026, 8, 8, 13, 0), "description": "Live cooking demo: Chef Alex"},
-            {"start_time": datetime(2026, 8, 8, 16, 0), "description": "Wine tasting masterclass"},
+            {
+                "start_time": datetime(2026, 8, 8, 11, 0),
+                "description": "Festival gates open",
+            },
+            {
+                "start_time": datetime(2026, 8, 8, 13, 0),
+                "description": "Live cooking demo: Chef Alex",
+            },
+            {
+                "start_time": datetime(2026, 8, 8, 16, 0),
+                "description": "Wine tasting masterclass",
+            },
         ],
         "location": {
             "longitude": -122.3321,
@@ -202,9 +256,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 5, 3, 16, 0),
         "category": "Workshop",
         "schedule": [
-            {"start_time": datetime(2026, 5, 3, 10, 0), "description": "Introduction and camera settings"},
-            {"start_time": datetime(2026, 5, 3, 12, 0), "description": "Outdoor shooting session"},
-            {"start_time": datetime(2026, 5, 3, 14, 0), "description": "Editing and post-processing"},
+            {
+                "start_time": datetime(2026, 5, 3, 10, 0),
+                "description": "Introduction and camera settings",
+            },
+            {
+                "start_time": datetime(2026, 5, 3, 12, 0),
+                "description": "Outdoor shooting session",
+            },
+            {
+                "start_time": datetime(2026, 5, 3, 14, 0),
+                "description": "Editing and post-processing",
+            },
         ],
         "location": {
             "longitude": -122.4194,
@@ -228,7 +291,10 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "category": "Music",
         "schedule": [
             {"start_time": datetime(2026, 6, 7, 14, 0), "description": "Opening set"},
-            {"start_time": datetime(2026, 6, 7, 16, 0), "description": "Featured artist performance"},
+            {
+                "start_time": datetime(2026, 6, 7, 16, 0),
+                "description": "Featured artist performance",
+            },
         ],
         "location": {
             "longitude": -122.4269,
@@ -251,7 +317,10 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 3, 22, 10, 0),
         "category": "Sports",
         "schedule": [
-            {"start_time": datetime(2026, 3, 22, 6, 30), "description": "Warm-up and group stretch"},
+            {
+                "start_time": datetime(2026, 3, 22, 6, 30),
+                "description": "Warm-up and group stretch",
+            },
             {"start_time": datetime(2026, 3, 22, 7, 0), "description": "Run starts"},
         ],
         "location": {
@@ -275,9 +344,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 4, 25, 22, 30),
         "category": "Other",
         "schedule": [
-            {"start_time": datetime(2026, 4, 25, 19, 0), "description": "Welcome and introduction"},
-            {"start_time": datetime(2026, 4, 25, 19, 15), "description": "Screening begins"},
-            {"start_time": datetime(2026, 4, 25, 21, 30), "description": "Director panel Q&A"},
+            {
+                "start_time": datetime(2026, 4, 25, 19, 0),
+                "description": "Welcome and introduction",
+            },
+            {
+                "start_time": datetime(2026, 4, 25, 19, 15),
+                "description": "Screening begins",
+            },
+            {
+                "start_time": datetime(2026, 4, 25, 21, 30),
+                "description": "Director panel Q&A",
+            },
         ],
         "location": {
             "longitude": -118.3287,
@@ -300,8 +378,14 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 5, 10, 1, 0),
         "category": "Music",
         "schedule": [
-            {"start_time": datetime(2026, 5, 9, 20, 0), "description": "Beginner salsa lesson"},
-            {"start_time": datetime(2026, 5, 9, 21, 0), "description": "Live band and open floor"},
+            {
+                "start_time": datetime(2026, 5, 9, 20, 0),
+                "description": "Beginner salsa lesson",
+            },
+            {
+                "start_time": datetime(2026, 5, 9, 21, 0),
+                "description": "Live band and open floor",
+            },
         ],
         "location": {
             "longitude": -80.1918,
@@ -324,9 +408,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 9, 14, 18, 0),
         "category": "Conference",
         "schedule": [
-            {"start_time": datetime(2026, 9, 12, 18, 0), "description": "Kickoff and team formation"},
-            {"start_time": datetime(2026, 9, 13, 9, 0), "description": "Hacking continues"},
-            {"start_time": datetime(2026, 9, 14, 15, 0), "description": "Demos and judging"},
+            {
+                "start_time": datetime(2026, 9, 12, 18, 0),
+                "description": "Kickoff and team formation",
+            },
+            {
+                "start_time": datetime(2026, 9, 13, 9, 0),
+                "description": "Hacking continues",
+            },
+            {
+                "start_time": datetime(2026, 9, 14, 15, 0),
+                "description": "Demos and judging",
+            },
         ],
         "location": {
             "longitude": -122.0084,
@@ -349,8 +442,14 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 7, 4, 21, 30),
         "category": "Theater",
         "schedule": [
-            {"start_time": datetime(2026, 7, 4, 19, 0), "description": "Pre-show entertainment"},
-            {"start_time": datetime(2026, 7, 4, 19, 30), "description": "Performance begins"},
+            {
+                "start_time": datetime(2026, 7, 4, 19, 0),
+                "description": "Pre-show entertainment",
+            },
+            {
+                "start_time": datetime(2026, 7, 4, 19, 30),
+                "description": "Performance begins",
+            },
         ],
         "location": {
             "longitude": -87.6298,
@@ -373,9 +472,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 4, 12, 14, 0),
         "category": "Workshop",
         "schedule": [
-            {"start_time": datetime(2026, 4, 12, 10, 0), "description": "Introduction to clay and tools"},
-            {"start_time": datetime(2026, 4, 12, 11, 0), "description": "Wheel throwing practice"},
-            {"start_time": datetime(2026, 4, 12, 13, 0), "description": "Glazing and finishing"},
+            {
+                "start_time": datetime(2026, 4, 12, 10, 0),
+                "description": "Introduction to clay and tools",
+            },
+            {
+                "start_time": datetime(2026, 4, 12, 11, 0),
+                "description": "Wheel throwing practice",
+            },
+            {
+                "start_time": datetime(2026, 4, 12, 13, 0),
+                "description": "Glazing and finishing",
+            },
         ],
         "location": {
             "longitude": -122.2711,
@@ -398,10 +506,19 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 5, 17, 15, 0),
         "category": "Sports",
         "schedule": [
-            {"start_time": datetime(2026, 5, 17, 8, 0), "description": "Meet and safety briefing"},
-            {"start_time": datetime(2026, 5, 17, 9, 0), "description": "Climbing session 1"},
+            {
+                "start_time": datetime(2026, 5, 17, 8, 0),
+                "description": "Meet and safety briefing",
+            },
+            {
+                "start_time": datetime(2026, 5, 17, 9, 0),
+                "description": "Climbing session 1",
+            },
             {"start_time": datetime(2026, 5, 17, 12, 0), "description": "Lunch break"},
-            {"start_time": datetime(2026, 5, 17, 13, 0), "description": "Climbing session 2"},
+            {
+                "start_time": datetime(2026, 5, 17, 13, 0),
+                "description": "Climbing session 2",
+            },
         ],
         "location": {
             "longitude": -122.0975,
@@ -424,8 +541,14 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 6, 29, 4, 0),
         "category": "Music",
         "schedule": [
-            {"start_time": datetime(2026, 6, 28, 22, 0), "description": "Doors open, DJ 1"},
-            {"start_time": datetime(2026, 6, 29, 0, 0), "description": "Headliner DJ set"},
+            {
+                "start_time": datetime(2026, 6, 28, 22, 0),
+                "description": "Doors open, DJ 1",
+            },
+            {
+                "start_time": datetime(2026, 6, 29, 0, 0),
+                "description": "Headliner DJ set",
+            },
             {"start_time": datetime(2026, 6, 29, 2, 0), "description": "Closing set"},
         ],
         "location": {
@@ -449,8 +572,14 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 4, 1, 20, 30),
         "category": "Other",
         "schedule": [
-            {"start_time": datetime(2026, 4, 1, 18, 30), "description": "Arrival and coffee"},
-            {"start_time": datetime(2026, 4, 1, 19, 0), "description": "Discussion begins"},
+            {
+                "start_time": datetime(2026, 4, 1, 18, 30),
+                "description": "Arrival and coffee",
+            },
+            {
+                "start_time": datetime(2026, 4, 1, 19, 0),
+                "description": "Discussion begins",
+            },
         ],
         "location": {
             "longitude": -122.4089,
@@ -473,9 +602,15 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 10, 3, 12, 0),
         "category": "Sports",
         "schedule": [
-            {"start_time": datetime(2026, 10, 3, 8, 0), "description": "Check-in and bib pickup"},
+            {
+                "start_time": datetime(2026, 10, 3, 8, 0),
+                "description": "Check-in and bib pickup",
+            },
             {"start_time": datetime(2026, 10, 3, 9, 0), "description": "Race start"},
-            {"start_time": datetime(2026, 10, 3, 10, 30), "description": "Awards and brunch"},
+            {
+                "start_time": datetime(2026, 10, 3, 10, 30),
+                "description": "Awards and brunch",
+            },
         ],
         "location": {
             "longitude": -71.0589,
@@ -499,9 +634,18 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "category": "Conference",
         "schedule": [
             {"start_time": datetime(2026, 8, 20, 9, 0), "description": "Registration"},
-            {"start_time": datetime(2026, 8, 20, 10, 0), "description": "Keynote: The Future of AI"},
-            {"start_time": datetime(2026, 8, 20, 14, 0), "description": "Hands-on ML workshop"},
-            {"start_time": datetime(2026, 8, 21, 9, 0), "description": "Day 2: Research presentations"},
+            {
+                "start_time": datetime(2026, 8, 20, 10, 0),
+                "description": "Keynote: The Future of AI",
+            },
+            {
+                "start_time": datetime(2026, 8, 20, 14, 0),
+                "description": "Hands-on ML workshop",
+            },
+            {
+                "start_time": datetime(2026, 8, 21, 9, 0),
+                "description": "Day 2: Research presentations",
+            },
         ],
         "location": {
             "longitude": -122.0084,
@@ -524,8 +668,14 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 3, 28, 23, 0),
         "category": "Music",
         "schedule": [
-            {"start_time": datetime(2026, 3, 28, 19, 0), "description": "Sign-up and sound check"},
-            {"start_time": datetime(2026, 3, 28, 19, 30), "description": "Performances begin"},
+            {
+                "start_time": datetime(2026, 3, 28, 19, 0),
+                "description": "Sign-up and sound check",
+            },
+            {
+                "start_time": datetime(2026, 3, 28, 19, 30),
+                "description": "Performances begin",
+            },
         ],
         "location": {
             "longitude": -122.4194,
@@ -549,8 +699,14 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "category": "Festival",
         "schedule": [
             {"start_time": datetime(2026, 4, 19, 8, 0), "description": "Market opens"},
-            {"start_time": datetime(2026, 4, 19, 10, 0), "description": "Live acoustic music"},
-            {"start_time": datetime(2026, 4, 19, 12, 0), "description": "Cooking demonstration"},
+            {
+                "start_time": datetime(2026, 4, 19, 10, 0),
+                "description": "Live acoustic music",
+            },
+            {
+                "start_time": datetime(2026, 4, 19, 12, 0),
+                "description": "Cooking demonstration",
+            },
         ],
         "location": {
             "longitude": -122.4098,
@@ -597,9 +753,15 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
         "end_time": datetime(2026, 7, 18, 17, 0),
         "category": "Workshop",
         "schedule": [
-            {"start_time": datetime(2026, 7, 18, 9, 0), "description": "Setup and intro to Solidity"},
+            {
+                "start_time": datetime(2026, 7, 18, 9, 0),
+                "description": "Setup and intro to Solidity",
+            },
             {"start_time": datetime(2026, 7, 18, 12, 0), "description": "Lunch break"},
-            {"start_time": datetime(2026, 7, 18, 13, 0), "description": "Build and deploy a dApp"},
+            {
+                "start_time": datetime(2026, 7, 18, 13, 0),
+                "description": "Build and deploy a dApp",
+            },
         ],
         "location": {
             "longitude": -122.4194,
@@ -618,11 +780,30 @@ ONLINE_EVENT_IDS = {2, 5, 13, 20, 24}
 SAMPLE_ATTENDANCE: list[dict[str, Any]] = [
     {"event_id": eid, "user_id": uid, "status": "going", "checked_in_at": None}
     for eid, uid_count in [
-        (1, 320), (2, 124), (3, 85), (4, 45), (5, 56),
-        (6, 234), (7, 150), (8, 18), (9, 90), (10, 75),
-        (11, 42), (12, 110), (13, 60), (14, 200), (15, 12),
-        (16, 20), (17, 180), (18, 25), (19, 300), (20, 95),
-        (21, 70), (22, 400), (23, 100), (24, 35),
+        (1, 320),
+        (2, 124),
+        (3, 85),
+        (4, 45),
+        (5, 56),
+        (6, 234),
+        (7, 150),
+        (8, 18),
+        (9, 90),
+        (10, 75),
+        (11, 42),
+        (12, 110),
+        (13, 60),
+        (14, 200),
+        (15, 12),
+        (16, 20),
+        (17, 180),
+        (18, 25),
+        (19, 300),
+        (20, 95),
+        (21, 70),
+        (22, 400),
+        (23, 100),
+        (24, 35),
     ]
     for uid in range(1, uid_count + 1)
 ]
@@ -630,7 +811,12 @@ SAMPLE_ATTENDANCE: list[dict[str, Any]] = [
 SAMPLE_FAVORITES: list[dict[str, Any]] = [
     {"event_id": eid, "user_id": uid}
     for eid, uid_count in [
-        (1, 50), (2, 30), (6, 80), (7, 45), (14, 60), (17, 40),
+        (1, 50),
+        (2, 30),
+        (6, 80),
+        (7, 45),
+        (14, 60),
+        (17, 40),
     ]
     for uid in range(1, uid_count + 1)
 ]
