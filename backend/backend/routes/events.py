@@ -343,7 +343,9 @@ async def create_event(db: DbDep, body: EventCreate) -> EventDetail:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{event_id}/favorites", response_model=FavoriteAddResponse, status_code=201)
+@router.post(
+    "/{event_id}/favorites", response_model=FavoriteAddResponse, status_code=201
+)
 async def add_favorite(
     db: DbDep, event_id: int, body: FavoriteRequest
 ) -> FavoriteAddResponse:
@@ -368,7 +370,9 @@ async def add_favorite(
 # ---------------------------------------------------------------------------
 
 
-@router.delete("/{event_id}/favorites", response_model=FavoriteRemoveResponse, status_code=200)
+@router.delete(
+    "/{event_id}/favorites", response_model=FavoriteRemoveResponse, status_code=200
+)
 async def remove_favorite(
     db: DbDep, event_id: int, body: FavoriteRequest
 ) -> FavoriteRemoveResponse:
