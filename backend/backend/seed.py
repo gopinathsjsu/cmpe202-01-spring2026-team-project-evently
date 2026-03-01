@@ -869,5 +869,8 @@ async def seed() -> None:
         )
 
 
-if __name__ == "__main__":
+def cli() -> None:
     asyncio.run(seed())
+
+if __name__ == "__main__":
+    cli()
