@@ -15,7 +15,7 @@ dependencies = [
 
 [project.scripts]
 backend = "backend.main:cli"
-
+seed = "backend.seed:cli"
 [project.urls]
 Repository = "https://github.com/gopinathsjsu/cmpe202-01-spring2026-team-project-evently"
 
