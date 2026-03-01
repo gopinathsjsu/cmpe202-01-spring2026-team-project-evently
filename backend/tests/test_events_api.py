@@ -584,3 +584,17 @@ async def test_favorite_nonexistent_event(
     async with client:
         resp = await client.post("/events/9999/favorites", json={"user_id": 1})
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_unfavorite_nonexistent_event(
+    db: AsyncDatabase[dict[str, Any]],
+) -> None:
+    await _clean(db)
+
+    _, client = _make_client(db)
+    async with client:
+        resp = await client.request(
+            "DELETE", "/events/9999/favorites", json={"user_id": 1}
+        )
+    assert resp.status_code == 404

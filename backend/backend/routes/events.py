@@ -8,6 +8,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.db import get_db
 from backend.models.event import Event, EventCategory, EventScheduleEntry, Location
+from backend.models.event_favorite import EventFavorite
 
 router = APIRouter()
 
@@ -22,6 +23,14 @@ class LocationSummary(BaseModel):
     venue_name: str | None = None
     city: str
     state: str
+
+    @classmethod
+    def from_location(cls, location: Location) -> "LocationSummary":
+        return cls(
+            venue_name=location.venue_name,
+            city=location.city,
+            state=location.state,
+        )
 
 
 class EventListItem(BaseModel):
@@ -39,12 +48,20 @@ class EventListItem(BaseModel):
     location: LocationSummary
     attending_count: int
 
+    @classmethod
+    def from_event(cls, event: Event, *, attending_count: int) -> "EventListItem":
+        return cls(
+            **event.model_dump(exclude={"schedule", "location"}),
+            location=LocationSummary.from_location(event.location),
+            attending_count=attending_count,
+        )
+
 
 class PaginatedEvents(BaseModel):
     items: list[EventListItem]
     total: int = Field(..., description="Total matching events")
-    page: int
-    page_size: int
+    page: int = Field(..., description="Current page number (1-indexed)")
+    page_size: int = Field(..., description="Number of items per page")
 
 
 class EventDetail(BaseModel):
@@ -63,6 +80,28 @@ class EventDetail(BaseModel):
     location: Location
     attending_count: int
     favorites_count: int
+
+    @classmethod
+    def from_event(
+        cls, event: Event, *, attending_count: int, favorites_count: int
+    ) -> "EventDetail":
+        return cls(
+            **event.model_dump(),
+            attending_count=attending_count,
+            favorites_count=favorites_count,
+        )
+
+
+class FavoriteAddResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["favorited"] = "favorited"
+
+
+class FavoriteRemoveResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["unfavorited"] = "unfavorited"
 
 
 # ---------------------------------------------------------------------------
@@ -239,25 +278,7 @@ async def list_events(
     for raw in raw_events:
         event = Event(**raw)
         items.append(
-            EventListItem(
-                id=event.id,
-                title=event.title,
-                about=event.about,
-                organizer_user_id=event.organizer_user_id,
-                price=event.price,
-                total_capacity=event.total_capacity,
-                start_time=event.start_time,
-                end_time=event.end_time,
-                category=event.category,
-                is_online=event.is_online,
-                image_url=event.image_url,
-                location=LocationSummary(
-                    venue_name=event.location.venue_name,
-                    city=event.location.city,
-                    state=event.location.state,
-                ),
-                attending_count=counts.get(event.id, 0),
-            )
+            EventListItem.from_event(event, attending_count=counts.get(event.id, 0))
         )
 
     return PaginatedEvents(items=items, total=total, page=page, page_size=page_size)
@@ -281,22 +302,8 @@ async def get_event(db: DbDep, event_id: int) -> EventDetail:
     )
     favorites = await db["event_favorites"].count_documents({"event_id": event_id})
 
-    return EventDetail(
-        id=event.id,
-        title=event.title,
-        about=event.about,
-        organizer_user_id=event.organizer_user_id,
-        price=event.price,
-        total_capacity=event.total_capacity,
-        start_time=event.start_time,
-        end_time=event.end_time,
-        category=event.category,
-        is_online=event.is_online,
-        image_url=event.image_url,
-        schedule=event.schedule,
-        location=event.location,
-        attending_count=attending,
-        favorites_count=favorites,
+    return EventDetail.from_event(
+        event, attending_count=attending, favorites_count=favorites
     )
 
 
@@ -328,23 +335,7 @@ async def create_event(db: DbDep, body: EventCreate) -> EventDetail:
 
     await db["events"].insert_one(event.model_dump())
 
-    return EventDetail(
-        id=event.id,
-        title=event.title,
-        about=event.about,
-        organizer_user_id=event.organizer_user_id,
-        price=event.price,
-        total_capacity=event.total_capacity,
-        start_time=event.start_time,
-        end_time=event.end_time,
-        category=event.category,
-        is_online=event.is_online,
-        image_url=event.image_url,
-        schedule=event.schedule,
-        location=event.location,
-        attending_count=0,
-        favorites_count=0,
-    )
+    return EventDetail.from_event(event, attending_count=0, favorites_count=0)
 
 
 # ---------------------------------------------------------------------------
@@ -352,24 +343,24 @@ async def create_event(db: DbDep, body: EventCreate) -> EventDetail:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{event_id}/favorites", status_code=201)
+@router.post("/{event_id}/favorites", response_model=FavoriteAddResponse, status_code=201)
 async def add_favorite(
     db: DbDep, event_id: int, body: FavoriteRequest
-) -> dict[str, str]:
+) -> FavoriteAddResponse:
     """Add an event to a user's favorites (idempotent)."""
     event = await db["events"].find_one({"id": event_id})
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
+    favorite = EventFavorite(event_id=event_id, user_id=body.user_id)
+
     existing = await db["event_favorites"].find_one(
-        {"event_id": event_id, "user_id": body.user_id}
+        {"event_id": favorite.event_id, "user_id": favorite.user_id}
     )
     if existing is None:
-        await db["event_favorites"].insert_one(
-            {"event_id": event_id, "user_id": body.user_id}
-        )
+        await db["event_favorites"].insert_one(favorite.model_dump())
 
-    return {"status": "favorited"}
+    return FavoriteAddResponse(event_id=event_id, user_id=body.user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -377,12 +368,17 @@ async def add_favorite(
 # ---------------------------------------------------------------------------
 
 
-@router.delete("/{event_id}/favorites", status_code=200)
+@router.delete("/{event_id}/favorites", response_model=FavoriteRemoveResponse, status_code=200)
 async def remove_favorite(
     db: DbDep, event_id: int, body: FavoriteRequest
-) -> dict[str, str]:
+) -> FavoriteRemoveResponse:
     """Remove an event from a user's favorites."""
+    event = await db["events"].find_one({"id": event_id})
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    favorite = EventFavorite(event_id=event_id, user_id=body.user_id)
     await db["event_favorites"].delete_one(
-        {"event_id": event_id, "user_id": body.user_id}
+        {"event_id": favorite.event_id, "user_id": favorite.user_id}
     )
-    return {"status": "unfavorited"}
+    return FavoriteRemoveResponse(event_id=event_id, user_id=body.user_id)
