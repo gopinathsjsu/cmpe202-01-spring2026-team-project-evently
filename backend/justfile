@@ -45,4 +45,4 @@ restart: db-stop dev
 
 # Re-seed the database (drops existing data)
 seed: check-env
-    uv run python -m backend.seed
+    uv run seed
