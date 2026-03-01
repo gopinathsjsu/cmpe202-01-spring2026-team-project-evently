@@ -2,7 +2,7 @@ from typing import Any
 
 from pymongo.asynchronous.database import AsyncDatabase
 
-from backend.models.user import EventFavorite
+from backend.models.event_favorite import EventFavorite
 
 
 async def test_create_and_retrieve_event_favorite(

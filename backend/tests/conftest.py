@@ -45,6 +45,8 @@ def event_data() -> dict[str, Any]:
         "start_time": datetime(2026, 6, 15, 19, 0, 0),
         "end_time": datetime(2026, 6, 15, 22, 0, 0),
         "category": "Music",
+        "is_online": False,
+        "image_url": None,
         "schedule": [
             {
                 "start_time": datetime(2026, 6, 15, 19, 0, 0),

@@ -33,8 +33,3 @@ class User(BaseModel):
     roles: set[GlobalRole] = Field(default_factory=lambda: {GlobalRole.User})
 
     profile: UserProfile = Field(default_factory=UserProfile)
-
-
-class EventFavorite(BaseModel):
-    event_id: int
-    user_id: int

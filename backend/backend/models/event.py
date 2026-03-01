@@ -11,7 +11,11 @@ class EventScheduleEntry(BaseModel):
 
 class EventCategory(StrEnum):
     Music = "Music"
+    Business = "Business"
+    Arts = "Arts"
+    Food = "Food"
     Sports = "Sports"
+    Education = "Education"
     Theater = "Theater"
     Comedy = "Comedy"
     Festival = "Festival"
@@ -58,6 +62,9 @@ class Event(BaseModel):
     end_time: DateTime
 
     category: EventCategory
+    is_online: bool = False
+    image_url: str | None = None
+
     schedule: list[EventScheduleEntry]
     location: Location
 

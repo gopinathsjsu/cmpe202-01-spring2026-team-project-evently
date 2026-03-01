@@ -15,15 +15,22 @@ check-env:
         exit 1; \
     fi
 
-# Start MongoDB if not running, then run the backend
-dev: check-env
-    @docker compose up -d mongodb
-    @echo "Starting backend..."
-    uv run backend
-
-# Start only MongoDB
+# Start MongoDB, wait for it to be ready, and seed sample data
 db: check-env
     docker compose up -d mongodb
+    @echo "Waiting for MongoDB to accept connections..."
+    @until docker compose exec mongodb mongosh --quiet \
+        -u "${DB_USERNAME}" -p "${DB_PASSWORD}" \
+        --eval "db.runCommand({ ping: 1 })" > /dev/null 2>&1; do \
+        sleep 1; \
+    done
+    @echo "MongoDB is ready. Seeding data..."
+    uv run python -m backend.seed
+
+# Start MongoDB (with seed) then run the backend
+dev: db
+    @echo "Starting backend..."
+    uv run backend
 
 # Stop MongoDB
 db-stop:
@@ -35,3 +42,7 @@ db-logs:
 
 # Restart everything
 restart: db-stop dev
+
+# Re-seed the database (drops existing data)
+seed: check-env
+    uv run seed
