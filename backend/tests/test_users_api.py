@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -6,7 +7,12 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
 from backend.db import get_db
-from backend.models.attendance import AttendanceStatus
+from backend.models.attendance import AttendanceStatus, EventAttendance
+from backend.models.user import GlobalRole, User, UserProfile
+
+
+def _role_set_to_string_list(roles: set[GlobalRole]) -> list[str]:
+    return [r.value for r in roles]
 
 
 def _make_client(
@@ -98,34 +104,19 @@ async def test_get_user_with_events_attended(
     await _clean(db)
     await db["users"].insert_one(user_data)
     await db["events"].insert_one({**event_data, "id": 1})
-    await db["attendance"].insert_many(
-        [
-            {
-                "event_id": 1,
-                "user_id": 1,
-                "status": AttendanceStatus.Going.value,
-                "checked_in_at": None,
-            },
-            {
-                "event_id": 1,
-                "user_id": 1,
-                "status": AttendanceStatus.CheckedIn.value,
-                "checked_in_at": None,
-            },
-            {
-                "event_id": 1,
-                "user_id": 1,
-                "status": AttendanceStatus.Cancelled.value,
-                "checked_in_at": None,
-            },
-            {
-                "event_id": 1,
-                "user_id": 2,
-                "status": AttendanceStatus.Going.value,
-                "checked_in_at": None,
-            },
-        ]
-    )
+
+    attendances = [
+        EventAttendance(event_id=1, user_id=1, status=AttendanceStatus.Going),
+        EventAttendance(
+            event_id=1,
+            user_id=1,
+            status=AttendanceStatus.CheckedIn,
+            checked_in_at=datetime(2026, 6, 15, 20, 0),
+        ),
+        EventAttendance(event_id=1, user_id=1, status=AttendanceStatus.Cancelled),
+        EventAttendance(event_id=1, user_id=2, status=AttendanceStatus.Going),
+    ]
+    await db["attendance"].insert_many([a.model_dump() for a in attendances])
 
     _, client = _make_client(db)
     async with client:
@@ -140,27 +131,28 @@ async def test_get_user_with_profile_social_handles(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
     await _clean(db)
-    await db["users"].insert_one(
-        {
-            "id": 1,
-            "username": "socialuser",
-            "first_name": "Social",
-            "last_name": "User",
-            "email": "social@example.com",
-            "phone_number": None,
-            "roles": ["user"],
-            "profile": {
-                "bio": "Social media enthusiast",
-                "location": "New York",
-                "website": "https://social.example.com",
-                "twitter_handle": "socialuser",
-                "instagram_handle": "socialinsta",
-                "facebook_handle": "socialfb",
-                "linkedin_handle": "sociallinkedin",
-                "interests": ["photography", "travel"],
-            },
-        }
+    user = User(
+        id=1,
+        username="socialuser",
+        first_name="Social",
+        last_name="User",
+        email="social@example.com",
+        phone_number=None,
+        roles={GlobalRole.User},
+        profile=UserProfile(
+            bio="Social media enthusiast",
+            location="New York",
+            website="https://social.example.com",
+            twitter_handle="socialuser",
+            instagram_handle="socialinsta",
+            facebook_handle="socialfb",
+            linkedin_handle="sociallinkedin",
+            interests=["photography", "travel"],
+        ),
     )
+    doc = user.model_dump()
+    doc["roles"] = _role_set_to_string_list(doc["roles"])
+    await db["users"].insert_one(doc)
 
     _, client = _make_client(db)
     async with client:
@@ -178,27 +170,19 @@ async def test_get_user_with_admin_role(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
     await _clean(db)
-    await db["users"].insert_one(
-        {
-            "id": 1,
-            "username": "admin",
-            "first_name": "Admin",
-            "last_name": "User",
-            "email": "admin@example.com",
-            "phone_number": None,
-            "roles": ["user", "admin"],
-            "profile": {
-                "bio": None,
-                "location": None,
-                "website": None,
-                "twitter_handle": None,
-                "instagram_handle": None,
-                "facebook_handle": None,
-                "linkedin_handle": None,
-                "interests": [],
-            },
-        }
+    user = User(
+        id=1,
+        username="admin",
+        first_name="Admin",
+        last_name="User",
+        email="admin@example.com",
+        phone_number=None,
+        roles={GlobalRole.User, GlobalRole.Admin},
+        profile=UserProfile(),
     )
+    doc = user.model_dump()
+    doc["roles"] = _role_set_to_string_list(doc["roles"])
+    await db["users"].insert_one(doc)
 
     _, client = _make_client(db)
     async with client:
@@ -213,27 +197,19 @@ async def test_get_user_minimal_profile(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
     await _clean(db)
-    await db["users"].insert_one(
-        {
-            "id": 1,
-            "username": "minimal",
-            "first_name": "Min",
-            "last_name": "Mal",
-            "email": "minimal@example.com",
-            "phone_number": None,
-            "roles": ["user"],
-            "profile": {
-                "bio": None,
-                "location": None,
-                "website": None,
-                "twitter_handle": None,
-                "instagram_handle": None,
-                "facebook_handle": None,
-                "linkedin_handle": None,
-                "interests": [],
-            },
-        }
+    user = User(
+        id=1,
+        username="minimal",
+        first_name="Min",
+        last_name="Mal",
+        email="minimal@example.com",
+        phone_number=None,
+        roles={GlobalRole.User},
+        profile=UserProfile(),
     )
+    doc = user.model_dump()
+    doc["roles"] = _role_set_to_string_list(doc["roles"])
+    await db["users"].insert_one(doc)
 
     _, client = _make_client(db)
     async with client:
