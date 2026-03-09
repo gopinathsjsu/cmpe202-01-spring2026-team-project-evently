@@ -52,7 +52,7 @@ async def get_user(db: DbDep, user_id: int) -> UserDetail:
 
     events_created = await db["events"].count_documents({"organizer_user_id": user_id})
     events_attended = await db["attendance"].count_documents(
-        {"user_id": user_id, "status": {"$ne": "cancelled"}}
+        {"user_id": user_id, "status": {"$eq": "checked_in"}}
     )
 
     return UserDetail.from_user(
