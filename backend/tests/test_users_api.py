@@ -66,15 +66,19 @@ async def test_get_user_not_found(
 
 @pytest.mark.asyncio
 async def test_get_user_with_events_created(
-    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any], event_data: dict[str, Any]
+    db: AsyncDatabase[dict[str, Any]],
+    user_data: dict[str, Any],
+    event_data: dict[str, Any],
 ) -> None:
     await _clean(db)
     await db["users"].insert_one(user_data)
-    await db["events"].insert_many([
-        {**event_data, "id": 1, "organizer_user_id": 1},
-        {**event_data, "id": 2, "organizer_user_id": 1},
-        {**event_data, "id": 3, "organizer_user_id": 2},
-    ])
+    await db["events"].insert_many(
+        [
+            {**event_data, "id": 1, "organizer_user_id": 1},
+            {**event_data, "id": 2, "organizer_user_id": 1},
+            {**event_data, "id": 3, "organizer_user_id": 2},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -86,17 +90,21 @@ async def test_get_user_with_events_created(
 
 @pytest.mark.asyncio
 async def test_get_user_with_events_attended(
-    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any], event_data: dict[str, Any]
+    db: AsyncDatabase[dict[str, Any]],
+    user_data: dict[str, Any],
+    event_data: dict[str, Any],
 ) -> None:
     await _clean(db)
     await db["users"].insert_one(user_data)
     await db["events"].insert_one({**event_data, "id": 1})
-    await db["attendance"].insert_many([
-        {"event_id": 1, "user_id": 1, "status": "going", "checked_in_at": None},
-        {"event_id": 1, "user_id": 1, "status": "maybe", "checked_in_at": None},
-        {"event_id": 1, "user_id": 1, "status": "cancelled", "checked_in_at": None},
-        {"event_id": 1, "user_id": 2, "status": "going", "checked_in_at": None},
-    ])
+    await db["attendance"].insert_many(
+        [
+            {"event_id": 1, "user_id": 1, "status": "going", "checked_in_at": None},
+            {"event_id": 1, "user_id": 1, "status": "maybe", "checked_in_at": None},
+            {"event_id": 1, "user_id": 1, "status": "cancelled", "checked_in_at": None},
+            {"event_id": 1, "user_id": 2, "status": "going", "checked_in_at": None},
+        ]
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -111,25 +119,27 @@ async def test_get_user_with_profile_social_handles(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
     await _clean(db)
-    await db["users"].insert_one({
-        "id": 1,
-        "username": "socialuser",
-        "first_name": "Social",
-        "last_name": "User",
-        "email": "social@example.com",
-        "phone_number": None,
-        "roles": ["user"],
-        "profile": {
-            "bio": "Social media enthusiast",
-            "location": "New York",
-            "website": "https://social.example.com",
-            "twitter_handle": "socialuser",
-            "instagram_handle": "socialinsta",
-            "facebook_handle": "socialfb",
-            "linkedin_handle": "sociallinkedin",
-            "interests": ["photography", "travel"],
-        },
-    })
+    await db["users"].insert_one(
+        {
+            "id": 1,
+            "username": "socialuser",
+            "first_name": "Social",
+            "last_name": "User",
+            "email": "social@example.com",
+            "phone_number": None,
+            "roles": ["user"],
+            "profile": {
+                "bio": "Social media enthusiast",
+                "location": "New York",
+                "website": "https://social.example.com",
+                "twitter_handle": "socialuser",
+                "instagram_handle": "socialinsta",
+                "facebook_handle": "socialfb",
+                "linkedin_handle": "sociallinkedin",
+                "interests": ["photography", "travel"],
+            },
+        }
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -147,25 +157,27 @@ async def test_get_user_with_admin_role(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
     await _clean(db)
-    await db["users"].insert_one({
-        "id": 1,
-        "username": "admin",
-        "first_name": "Admin",
-        "last_name": "User",
-        "email": "admin@example.com",
-        "phone_number": None,
-        "roles": ["user", "admin"],
-        "profile": {
-            "bio": None,
-            "location": None,
-            "website": None,
-            "twitter_handle": None,
-            "instagram_handle": None,
-            "facebook_handle": None,
-            "linkedin_handle": None,
-            "interests": [],
-        },
-    })
+    await db["users"].insert_one(
+        {
+            "id": 1,
+            "username": "admin",
+            "first_name": "Admin",
+            "last_name": "User",
+            "email": "admin@example.com",
+            "phone_number": None,
+            "roles": ["user", "admin"],
+            "profile": {
+                "bio": None,
+                "location": None,
+                "website": None,
+                "twitter_handle": None,
+                "instagram_handle": None,
+                "facebook_handle": None,
+                "linkedin_handle": None,
+                "interests": [],
+            },
+        }
+    )
 
     _, client = _make_client(db)
     async with client:
@@ -180,25 +192,27 @@ async def test_get_user_minimal_profile(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
     await _clean(db)
-    await db["users"].insert_one({
-        "id": 1,
-        "username": "minimal",
-        "first_name": "Min",
-        "last_name": "Mal",
-        "email": "minimal@example.com",
-        "phone_number": None,
-        "roles": ["user"],
-        "profile": {
-            "bio": None,
-            "location": None,
-            "website": None,
-            "twitter_handle": None,
-            "instagram_handle": None,
-            "facebook_handle": None,
-            "linkedin_handle": None,
-            "interests": [],
-        },
-    })
+    await db["users"].insert_one(
+        {
+            "id": 1,
+            "username": "minimal",
+            "first_name": "Min",
+            "last_name": "Mal",
+            "email": "minimal@example.com",
+            "phone_number": None,
+            "roles": ["user"],
+            "profile": {
+                "bio": None,
+                "location": None,
+                "website": None,
+                "twitter_handle": None,
+                "instagram_handle": None,
+                "facebook_handle": None,
+                "linkedin_handle": None,
+                "interests": [],
+            },
+        }
+    )
 
     _, client = _make_client(db)
     async with client:
