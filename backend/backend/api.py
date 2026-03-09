@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.routes.events import router as events_router
+from backend.routes.users import router as users_router
 
 
 def create_app() -> FastAPI:
@@ -14,6 +15,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(events_router, prefix="/events", tags=["events"])
+    app.include_router(users_router, prefix="/users", tags=["users"])
     return app
 
 
