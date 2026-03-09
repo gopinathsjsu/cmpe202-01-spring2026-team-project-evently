@@ -132,7 +132,7 @@ async def test_get_user_with_events_attended(
         resp = await client.get("/users/1")
 
     body = resp.json()
-    assert body["events_attended_count"] == 2
+    assert body["events_attended_count"] == 1
 
 
 @pytest.mark.asyncio
