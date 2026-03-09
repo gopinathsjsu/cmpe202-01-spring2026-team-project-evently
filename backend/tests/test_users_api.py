@@ -6,6 +6,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
 from backend.db import get_db
+from backend.models.attendance import AttendanceStatus
 
 
 def _make_client(
@@ -99,10 +100,30 @@ async def test_get_user_with_events_attended(
     await db["events"].insert_one({**event_data, "id": 1})
     await db["attendance"].insert_many(
         [
-            {"event_id": 1, "user_id": 1, "status": "going", "checked_in_at": None},
-            {"event_id": 1, "user_id": 1, "status": "maybe", "checked_in_at": None},
-            {"event_id": 1, "user_id": 1, "status": "cancelled", "checked_in_at": None},
-            {"event_id": 1, "user_id": 2, "status": "going", "checked_in_at": None},
+            {
+                "event_id": 1,
+                "user_id": 1,
+                "status": AttendanceStatus.Going.value,
+                "checked_in_at": None,
+            },
+            {
+                "event_id": 1,
+                "user_id": 1,
+                "status": AttendanceStatus.CheckedIn.value,
+                "checked_in_at": None,
+            },
+            {
+                "event_id": 1,
+                "user_id": 1,
+                "status": AttendanceStatus.Cancelled.value,
+                "checked_in_at": None,
+            },
+            {
+                "event_id": 1,
+                "user_id": 2,
+                "status": AttendanceStatus.Going.value,
+                "checked_in_at": None,
+            },
         ]
     )
 
