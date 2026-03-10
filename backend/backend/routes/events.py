@@ -1,8 +1,9 @@
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pymongo import ASCENDING, DESCENDING
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -123,6 +124,26 @@ class EventCreate(BaseModel):
     schedule: list[EventScheduleEntry] = Field(default_factory=list)
     location: Location
 
+    @field_validator("price")
+    @classmethod
+    def price_non_negative(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("Price must be non-negative")
+        return v
+
+    @field_validator("total_capacity")
+    @classmethod
+    def capacity_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("Total capacity must be positive")
+        return v
+
+    @model_validator(mode="after")
+    def end_time_after_start_time(self) -> "EventCreate":
+        if self.end_time <= self.start_time:
+            raise ValueError("End time must be after start time")
+        return self
+
 
 class FavoriteRequest(BaseModel):
     user_id: int
@@ -228,16 +249,18 @@ async def list_events(
     filters: dict[str, object] = {}
 
     if q:
+        escaped_q = re.escape(q)
         filters["$or"] = [
-            {"title": {"$regex": q, "$options": "i"}},
-            {"about": {"$regex": q, "$options": "i"}},
+            {"title": {"$regex": escaped_q, "$options": "i"}},
+            {"about": {"$regex": escaped_q, "$options": "i"}},
         ]
 
     if category is not None:
         filters["category"] = category.value
 
     if city is not None:
-        filters["location.city"] = {"$regex": f"^{city}$", "$options": "i"}
+        escaped_city = re.escape(city)
+        filters["location.city"] = {"$regex": f"^{escaped_city}$", "$options": "i"}
 
     if is_online is not None:
         filters["is_online"] = is_online

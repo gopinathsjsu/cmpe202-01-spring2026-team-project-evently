@@ -5,8 +5,8 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: evently
-      MONGO_INITDB_ROOT_PASSWORD: evently
+      MONGO_INITDB_ROOT_USERNAME: ${DB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD}
     volumes:
       - mongodb_data:/data/db
     healthcheck:
@@ -20,7 +20,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: "mongodb://evently:evently@mongodb:27017"
+      DATABASE_URL: "mongodb://${DB_USERNAME}:${DB_PASSWORD}@mongodb:27017"
     depends_on:
       mongodb:
         condition: service_healthy

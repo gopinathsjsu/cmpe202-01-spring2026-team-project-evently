@@ -32,4 +32,5 @@ class User(BaseModel):
 
     roles: set[GlobalRole] = Field(default_factory=lambda: {GlobalRole.User})
 
+    profile_photo_url: str | None = None
     profile: UserProfile = Field(default_factory=UserProfile)

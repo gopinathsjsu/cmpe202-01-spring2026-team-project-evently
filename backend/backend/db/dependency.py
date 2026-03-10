@@ -1,12 +1,15 @@
-from collections.abc import AsyncIterator
 from typing import Any
 
+from fastapi import Request
 from pymongo.asynchronous.database import AsyncDatabase
 
-from .client import get_database
 
-
-async def get_db() -> AsyncIterator[AsyncDatabase[dict[str, Any]]]:
-    """FastAPI dependency that yields a MongoDB database handle."""
-    async with get_database() as database:
-        yield database
+def get_db(request: Request) -> AsyncDatabase[dict[str, Any]]:
+    """FastAPI dependency that returns the shared MongoDB database handle."""
+    db: AsyncDatabase[dict[str, Any]] | None = getattr(request.app.state, "db", None)
+    if db is None:
+        raise RuntimeError(
+            "Database not initialized. Ensure the app lifespan has started "
+            "and DATABASE_URL is set."
+        )
+    return db

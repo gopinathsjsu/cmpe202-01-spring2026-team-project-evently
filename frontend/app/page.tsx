@@ -40,6 +40,7 @@ function formatLocation(loc: EventFromApi["location"], isOnline: boolean): strin
 async function fetchEvents(params: {
   page?: number; page_size?: number; q?: string; city?: string;
   category?: EventCategory; sort_by?: string; sort_order?: string;
+  is_online?: boolean; price_type?: string; date_preset?: string;
 }) {
   const search = new URLSearchParams();
   search.set("page", String(params.page ?? 1));
@@ -49,6 +50,9 @@ async function fetchEvents(params: {
   if (params.q?.trim()) search.set("q", params.q.trim());
   if (params.city?.trim()) search.set("city", params.city.trim());
   if (params.category) search.set("category", params.category);
+  if (params.is_online !== undefined) search.set("is_online", String(params.is_online));
+  if (params.price_type) search.set("price_type", params.price_type);
+  if (params.date_preset) search.set("date_preset", params.date_preset);
   const res = await fetch(`${API_BASE}/events/?${search.toString()}`);
   if (!res.ok) throw new Error("Failed to fetch events");
   return res.json() as Promise<{ items: EventFromApi[]; total: number }>;
@@ -112,10 +116,29 @@ export default function DiscoverPage() {
   const [categoryFilter, setCategoryFilter] = useState<EventCategory | null>(null);
   const [sortBy, setSortBy] = useState<"start_time" | "price" | "title">("start_time");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [clearKey, setClearKey] = useState(0);
   const [dateFilters, setDateFilters] = useState<string[]>([]);
   const [eventTypeFilters, setEventTypeFilters] = useState<string[]>([]);
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
+
+  const resolvedIsOnline = eventTypeFilters.includes("Online") && !eventTypeFilters.includes("In-Person")
+    ? true
+    : eventTypeFilters.includes("In-Person") && !eventTypeFilters.includes("Online")
+      ? false
+      : undefined;
+
+  const resolvedDatePreset = dateFilters.includes("Today")
+    ? "today"
+    : dateFilters.includes("This Week")
+      ? "this_week"
+      : dateFilters.includes("This Month")
+        ? "this_month"
+        : undefined;
+
+  const resolvedPriceType = priceFilter === "Free"
+    ? "free"
+    : priceFilter === "Paid"
+      ? "paid"
+      : undefined;
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
@@ -128,6 +151,9 @@ export default function DiscoverPage() {
         category: categoryFilter ?? undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
+        is_online: resolvedIsOnline,
+        price_type: resolvedPriceType,
+        date_preset: resolvedDatePreset,
       });
       setEvents(data.items);
       setTotal(data.total);
@@ -137,16 +163,15 @@ export default function DiscoverPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, searchQuery, locationQuery, categoryFilter, sortBy, sortOrder]);
+  }, [page, searchQuery, locationQuery, categoryFilter, sortBy, sortOrder, resolvedIsOnline, resolvedPriceType, resolvedDatePreset]);
 
   useEffect(() => {
     loadEvents();
-  }, [loadEvents, clearKey]);
+  }, [loadEvents]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
-    loadEvents();
   };
 
   const handleClearAll = () => {
@@ -157,7 +182,8 @@ export default function DiscoverPage() {
     setDateFilters([]);
     setEventTypeFilters([]);
     setPriceFilter(null);
-    setClearKey((k) => k + 1);
+    setSortBy("start_time");
+    setSortOrder("asc");
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -363,19 +389,25 @@ export default function DiscoverPage() {
                   >
                     &larr;
                   </button>
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    const p = i + 1;
-                    return (
-                      <button
-                        key={p}
-                        type="button"
-                        className={`rounded-md px-3 py-2 text-sm font-medium ${page === p ? "bg-black text-white" : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}
-                        onClick={() => setPage(p)}
-                      >
-                        {p}
-                      </button>
-                    );
-                  })}
+                  {(() => {
+                    const maxVisible = 5;
+                    let start = Math.max(1, page - Math.floor(maxVisible / 2));
+                    const end = Math.min(totalPages, start + maxVisible - 1);
+                    start = Math.max(1, end - maxVisible + 1);
+                    return Array.from({ length: end - start + 1 }, (_, i) => {
+                      const p = start + i;
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          className={`rounded-md px-3 py-2 text-sm font-medium ${page === p ? "bg-black text-white" : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}
+                          onClick={() => setPage(p)}
+                        >
+                          {p}
+                        </button>
+                      );
+                    });
+                  })()}
                   <button
                     type="button"
                     className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
@@ -425,7 +457,7 @@ export default function DiscoverPage() {
               </div>
             </div>
             <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-gray-200 pt-8 sm:flex-row">
-              <p className="text-sm text-gray-500">© 2025 Evently. All rights reserved.</p>
+              <p className="text-sm text-gray-500">© 2026 Evently. All rights reserved.</p>
               <div className="flex gap-6 text-sm">
                 <a href="#" className="hover:text-black">Privacy Policy</a>
                 <a href="#" className="hover:text-black">Terms of Service</a>

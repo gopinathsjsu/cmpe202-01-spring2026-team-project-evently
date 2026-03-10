@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "Seeding database..."
+echo "Seeding database (skips if already seeded)..."
 uv run python -m backend.seed
 
 echo "Starting backend server..."
