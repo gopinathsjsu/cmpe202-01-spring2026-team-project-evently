@@ -49,7 +49,10 @@ async def test_submit_contact_success(
     body = resp.json()
     assert "id" in body
     assert "message" in body
-    assert body["message"] == "Your message has been received. We'll get back to you within 24 hours."
+    assert (
+        body["message"]
+        == "Your message has been received. We'll get back to you within 24 hours."
+    )
 
 
 @pytest.mark.asyncio

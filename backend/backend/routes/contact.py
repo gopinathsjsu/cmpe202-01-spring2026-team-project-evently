@@ -4,13 +4,15 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, TypeAdapter
 from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.db import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_email_validator = TypeAdapter(EmailStr)
 
 DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 
@@ -52,7 +54,7 @@ async def submit_contact(
         raise HTTPException(status_code=422, detail="Invalid subject selected.")
 
     try:
-        EmailStr._validate(email)
+        _email_validator.validate_python(email)
     except Exception as exc:
         raise HTTPException(status_code=422, detail="Invalid email address.") from exc
 
@@ -61,7 +63,10 @@ async def submit_contact(
 
     attachment_name: str | None = None
     if attachment and attachment.filename:
-        if attachment.content_type and attachment.content_type not in ALLOWED_ATTACHMENT_TYPES:
+        if (
+            attachment.content_type
+            and attachment.content_type not in ALLOWED_ATTACHMENT_TYPES
+        ):
             raise HTTPException(
                 status_code=400,
                 detail="Invalid attachment type. Allowed: JPG, PNG, GIF, PDF, TXT.",
