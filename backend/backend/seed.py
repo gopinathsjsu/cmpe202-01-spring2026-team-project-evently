@@ -777,6 +777,149 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
 
 ONLINE_EVENT_IDS = {2, 5, 13, 20, 24}
 
+SAMPLE_USERS: list[dict[str, Any]] = [
+    {
+        "id": 1,
+        "username": "sarahjohnson",
+        "first_name": "Sarah",
+        "last_name": "Johnson",
+        "email": "sarah.johnson@email.com",
+        "phone_number": "+1 (555) 123-4567",
+        "roles": ["user"],
+        "profile_photo_url": None,
+        "profile": {
+            "bio": "Passionate event enthusiast and community builder. Love attending music festivals, tech conferences, and networking events. Always looking for unique experiences and opportunities to connect with like-minded people.",
+            "location": "New York, NY",
+            "website": "www.sarahjohnson.com",
+            "twitter_handle": "@sarahjohnson",
+            "instagram_handle": "@sarahjohnson",
+            "facebook_handle": "Sarah Johnson",
+            "linkedin_handle": "sarah-johnson",
+            "interests": ["Music", "Technology", "Networking", "Art"],
+        },
+    },
+    {
+        "id": 2,
+        "username": "alexchen",
+        "first_name": "Alex",
+        "last_name": "Chen",
+        "email": "alex.chen@email.com",
+        "phone_number": "+1 (555) 234-5678",
+        "roles": ["user"],
+        "profile_photo_url": None,
+        "profile": {
+            "bio": "Tech entrepreneur and startup mentor. Organizer of Bay Area's top tech meetups and hackathons.",
+            "location": "San Francisco, CA",
+            "website": "www.alexchen.dev",
+            "twitter_handle": "@alexchendev",
+            "instagram_handle": None,
+            "facebook_handle": None,
+            "linkedin_handle": "alexchen",
+            "interests": ["Technology", "Startups", "AI", "Blockchain"],
+        },
+    },
+    {
+        "id": 3,
+        "username": "miarivera",
+        "first_name": "Mia",
+        "last_name": "Rivera",
+        "email": "mia.rivera@email.com",
+        "phone_number": "+1 (555) 345-6789",
+        "roles": ["user"],
+        "profile_photo_url": None,
+        "profile": {
+            "bio": "Artist and curator with a passion for contemporary art and independent film.",
+            "location": "Los Angeles, CA",
+            "website": "www.miariveraart.com",
+            "twitter_handle": None,
+            "instagram_handle": "@miariveraart",
+            "facebook_handle": "Mia Rivera Art",
+            "linkedin_handle": None,
+            "interests": ["Arts", "Film", "Photography", "Theater"],
+        },
+    },
+    {
+        "id": 4,
+        "username": "jamespark",
+        "first_name": "James",
+        "last_name": "Park",
+        "email": "james.park@email.com",
+        "phone_number": "+1 (555) 456-7890",
+        "roles": ["user"],
+        "profile_photo_url": None,
+        "profile": {
+            "bio": "Fitness enthusiast and certified yoga instructor. Organizer of outdoor sports events across California.",
+            "location": "San Francisco, CA",
+            "website": None,
+            "twitter_handle": "@jamespark_fit",
+            "instagram_handle": "@jamespark_fit",
+            "facebook_handle": None,
+            "linkedin_handle": None,
+            "interests": ["Sports", "Yoga", "Running", "Climbing"],
+        },
+    },
+    {
+        "id": 5,
+        "username": "emilydavis",
+        "first_name": "Emily",
+        "last_name": "Davis",
+        "email": "emily.davis@email.com",
+        "phone_number": "+1 (555) 567-8901",
+        "roles": ["user"],
+        "profile_photo_url": None,
+        "profile": {
+            "bio": "Comedy lover and event producer. Bringing laughs to stages across the country.",
+            "location": "New York, NY",
+            "website": "www.emilydaviscomedy.com",
+            "twitter_handle": "@emilydcomedy",
+            "instagram_handle": "@emilydcomedy",
+            "facebook_handle": "Emily Davis Comedy",
+            "linkedin_handle": "emily-davis",
+            "interests": ["Comedy", "Music", "Entertainment"],
+        },
+    },
+    {
+        "id": 6,
+        "username": "marcuslee",
+        "first_name": "Marcus",
+        "last_name": "Lee",
+        "email": "marcus.lee@email.com",
+        "phone_number": "+1 (555) 678-9012",
+        "roles": ["user"],
+        "profile_photo_url": None,
+        "profile": {
+            "bio": "Foodie, book club organizer, and community market advocate.",
+            "location": "San Francisco, CA",
+            "website": None,
+            "twitter_handle": None,
+            "instagram_handle": "@marcusleeeats",
+            "facebook_handle": "Marcus Lee",
+            "linkedin_handle": None,
+            "interests": ["Food", "Books", "Community"],
+        },
+    },
+    {
+        "id": 7,
+        "username": "oliviawong",
+        "first_name": "Olivia",
+        "last_name": "Wong",
+        "email": "olivia.wong@email.com",
+        "phone_number": "+1 (555) 789-0123",
+        "roles": ["user"],
+        "profile_photo_url": None,
+        "profile": {
+            "bio": "Workshop facilitator specializing in creative arts and photography education.",
+            "location": "Oakland, CA",
+            "website": "www.oliviawongphoto.com",
+            "twitter_handle": "@oliviawphoto",
+            "instagram_handle": "@oliviawongphoto",
+            "facebook_handle": None,
+            "linkedin_handle": "olivia-wong",
+            "interests": ["Photography", "Ceramics", "Education", "Art"],
+        },
+    },
+]
+
 SAMPLE_ATTENDANCE: list[dict[str, Any]] = [
     {"event_id": eid, "user_id": uid, "status": "going", "checked_in_at": None}
     for eid, uid_count in [
@@ -838,11 +981,13 @@ async def seed() -> None:
     async with AsyncMongoClient(url) as client:
         db: Any = client["evently"]
 
-        for coll_name in ("events", "attendance", "event_favorites"):
+        for coll_name in ("users", "events", "attendance", "event_favorites"):
             existing = await db[coll_name].count_documents({})
             if existing > 0:
                 logger.info("Dropping %d docs from '%s'...", existing, coll_name)
                 await db[coll_name].delete_many({})
+
+        await db["users"].insert_many(SAMPLE_USERS)
 
         enriched = []
         for evt in SAMPLE_EVENTS:
@@ -858,11 +1003,13 @@ async def seed() -> None:
         await db["attendance"].insert_many(SAMPLE_ATTENDANCE)
         await db["event_favorites"].insert_many(SAMPLE_FAVORITES)
 
+        us_count = await db["users"].count_documents({})
         ev_count = await db["events"].count_documents({})
         at_count = await db["attendance"].count_documents({})
         fv_count = await db["event_favorites"].count_documents({})
         logger.info(
-            "Seeded %d events, %d attendance records, %d favorites.",
+            "Seeded %d users, %d events, %d attendance records, %d favorites.",
+            us_count,
             ev_count,
             at_count,
             fv_count,
