@@ -68,3 +68,18 @@ export interface EventDetail {
   attending_count: number;
   favorites_count: number;
 }
+
+export interface EventCreatePayload {
+  title: string;
+  about: string;
+  organizer_user_id: number;
+  price: number;
+  total_capacity: number;
+  start_time: string;
+  end_time: string;
+  category: EventCategory;
+  is_online: boolean;
+  image_url: string | null;
+  schedule: EventScheduleEntry[];
+  location: Location;
+}

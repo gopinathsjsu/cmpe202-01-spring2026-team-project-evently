@@ -85,7 +85,7 @@ export default async function EventDetailPage({
               <a href="/events" className="text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white">
                 Browse Events
               </a>
-              <a href="/events/create" className="text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white">
+              <a href="/create" className="text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white">
                 Create Event
               </a>
               <a href="#" className="text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white">
