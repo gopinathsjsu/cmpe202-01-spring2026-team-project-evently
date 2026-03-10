@@ -20,6 +20,28 @@ User Roles:
     - Review events
     - Approve / Reject events
 
+## Quick Start
+
+The only prerequisite is [Docker](https://docs.docker.com/get-docker/). From the project root:
+
+```bash
+docker compose up --build
+```
+
+This starts MongoDB, the FastAPI backend (with sample data), and the Next.js frontend in one command:
+
+| Service  | URL                        |
+|----------|----------------------------|
+| Frontend | http://localhost:3000       |
+| Backend  | http://localhost:8000       |
+| MongoDB  | mongodb://localhost:27017   |
+
+To stop everything: `docker compose down`
+
+To stop and wipe the database: `docker compose down -v`
+
+## Architecture
+
 Below is the architecture diagram for the Evently system:
 - ![Architecture Diagram](diagrams/architecture.png)
 
