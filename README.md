@@ -20,6 +20,53 @@ User Roles:
     - Review events
     - Approve / Reject events
 
+## Quick Start
+
+Prerequisites: [Docker](https://docs.docker.com/get-docker/) and (optionally) [`just`](https://github.com/casey/just#packages) for convenience commands.
+
+**1. Create a `.env` file** from the template:
+
+```bash
+cp .env.example .env   # then edit credentials if desired
+```
+
+**2. Start the full stack:**
+
+```bash
+just up          # or: docker compose up --build
+```
+
+This starts MongoDB, the FastAPI backend (with sample data), and the Next.js frontend:
+
+| Service  | URL                        |
+|----------|----------------------------|
+| Frontend | http://localhost:3000       |
+| Backend  | http://localhost:8000       |
+| MongoDB  | mongodb://localhost:27017   |
+
+**3. Stop / reset:**
+
+```bash
+just down        # stop all services
+just reset       # stop and wipe the database volume
+```
+
+## Local Development
+
+For development with hot reloading, run services outside Docker. Additional prerequisites: [`uv`](https://docs.astral.sh/uv/), [`pnpm`](https://pnpm.io/installation), and [`just`](https://github.com/casey/just#packages).
+
+```bash
+# Terminal 1 — start MongoDB + seed + backend (from project root)
+just backend
+
+# Terminal 2 — start the frontend (from project root)
+just frontend
+```
+
+Run `just` with no arguments to see all available commands.
+
+## Architecture
+
 Below is the architecture diagram for the Evently system:
 - ![Architecture Diagram](diagrams/architecture.png)
 
