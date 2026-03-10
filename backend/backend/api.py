@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db_client = client
     app.state.db = client["evently"]
     yield
-    client.close()
+    await client.close()
 
 
 def create_app() -> FastAPI:

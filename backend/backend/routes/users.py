@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel, EmailStr
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -18,6 +18,7 @@ DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/gif"}
+ALLOWED_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
 MAX_PHOTO_SIZE = 5 * 1024 * 1024  # 5 MB
 
 # ---------------------------------------------------------------------------
@@ -97,7 +98,13 @@ class UserProfileUpdate(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-_USER_TOP_LEVEL_FIELDS = {"first_name", "last_name", "username", "email", "phone_number"}
+_USER_TOP_LEVEL_FIELDS = {
+    "first_name",
+    "last_name",
+    "username",
+    "email",
+    "phone_number",
+}
 _PROFILE_FIELDS = {
     "bio",
     "location",
@@ -117,7 +124,9 @@ async def _get_user_or_404(db: AsyncDatabase[dict[str, Any]], user_id: int) -> U
     return User(**raw)
 
 
-async def _build_user_detail(db: AsyncDatabase[dict[str, Any]], user: User) -> UserDetail:
+async def _build_user_detail(
+    db: AsyncDatabase[dict[str, Any]], user: User
+) -> UserDetail:
     events_created = await db["events"].count_documents({"organizer_user_id": user.id})
     events_attended = await db["attendance"].count_documents(
         {"user_id": user.id, "status": {"$eq": "checked_in"}}
@@ -197,6 +206,11 @@ async def upload_photo(db: DbDep, user_id: int, file: UploadFile) -> PhotoRespon
             os.remove(old_path)
 
     ext = (file.filename or "photo.jpg").rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_PHOTO_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file extension. Allowed: jpg, jpeg, png, gif.",
+        )
     filename = f"{user_id}_{uuid.uuid4().hex[:8]}.{ext}"
     filepath = os.path.join(UPLOAD_DIR, filename)
 
@@ -241,16 +255,18 @@ async def delete_photo(db: DbDep, user_id: int) -> None:
 async def get_user_activity(
     db: DbDep,
     user_id: int,
-    limit: int = 10,
+    limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> ActivityResponse:
     """Return a user's recent activity (events created, attended, registered)."""
     await _get_user_or_404(db, user_id)
 
     items: list[ActivityItem] = []
 
-    # Events created by the user
-    created_cursor = db["events"].find({"organizer_user_id": user_id}).sort(
-        "start_time", -1
+    created_cursor = (
+        db["events"]
+        .find({"organizer_user_id": user_id})
+        .sort("start_time", -1)
+        .limit(limit)
     )
     async for raw_event in created_cursor:
         items.append(
@@ -263,12 +279,22 @@ async def get_user_activity(
             )
         )
 
-    # Events the user attended or registered for
-    attendance_cursor = db["attendance"].find({"user_id": user_id}).sort(
-        "checked_in_at", -1
+    attendance_cursor = (
+        db["attendance"]
+        .find({"user_id": user_id})
+        .sort("checked_in_at", -1)
+        .limit(limit)
     )
-    async for raw_att in attendance_cursor:
-        event_raw = await db["events"].find_one({"id": raw_att["event_id"]})
+    attendance_records = await attendance_cursor.to_list(length=limit)
+
+    event_ids = list({r["event_id"] for r in attendance_records})
+    events_by_id: dict[int, dict[str, Any]] = {}
+    if event_ids:
+        async for ev in db["events"].find({"id": {"$in": event_ids}}):
+            events_by_id[ev["id"]] = ev
+
+    for raw_att in attendance_records:
+        event_raw = events_by_id.get(raw_att["event_id"])
         if event_raw is None:
             continue
 
