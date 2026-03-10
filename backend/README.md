@@ -16,7 +16,8 @@ The backend requires the following environment variables to be set:
 
 1. Copy `.env.example` to `.env` with `cp .env.example .env`
 2. Edit `.env` with your desired credentials
-3. Source the environment file before running commands with `source .env`
+
+> The justfile auto-loads `.env` via `set dotenv-load` — no need to manually `source .env`.
 
 ### Required External Tools
 

@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
@@ -228,16 +229,18 @@ async def list_events(
     filters: dict[str, object] = {}
 
     if q:
+        escaped_q = re.escape(q)
         filters["$or"] = [
-            {"title": {"$regex": q, "$options": "i"}},
-            {"about": {"$regex": q, "$options": "i"}},
+            {"title": {"$regex": escaped_q, "$options": "i"}},
+            {"about": {"$regex": escaped_q, "$options": "i"}},
         ]
 
     if category is not None:
         filters["category"] = category.value
 
     if city is not None:
-        filters["location.city"] = {"$regex": f"^{city}$", "$options": "i"}
+        escaped_city = re.escape(city)
+        filters["location.city"] = {"$regex": f"^{escaped_city}$", "$options": "i"}
 
     if is_online is not None:
         filters["is_online"] = is_online

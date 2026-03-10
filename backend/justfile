@@ -1,3 +1,6 @@
+set dotenv-load
+set export
+
 # List available recipes
 default:
     @just --list
@@ -5,13 +8,13 @@ default:
 # Check required environment variables
 check-env:
     @if [ -z "${DB_USERNAME:-}" ]; then \
-        echo "Error: DB_USERNAME environment variable is not set"; \
-        echo "Please source your .env file: source .env"; \
+        echo "Error: DB_USERNAME is not set"; \
+        echo "Please create .env from .env.example: cp .env.example .env"; \
         exit 1; \
     fi
     @if [ -z "${DB_PASSWORD:-}" ]; then \
-        echo "Error: DB_PASSWORD environment variable is not set"; \
-        echo "Please source your .env file: source .env"; \
+        echo "Error: DB_PASSWORD is not set"; \
+        echo "Please create .env from .env.example: cp .env.example .env"; \
         exit 1; \
     fi
 
@@ -25,7 +28,7 @@ db: check-env
         sleep 1; \
     done
     @echo "MongoDB is ready. Seeding data..."
-    uv run python -m backend.seed
+    uv run python -m backend.seed --force
 
 # Start MongoDB (with seed) then run the backend
 dev: db
@@ -45,4 +48,4 @@ restart: db-stop dev
 
 # Re-seed the database (drops existing data)
 seed: check-env
-    uv run seed
+    uv run seed --force

@@ -965,7 +965,7 @@ SAMPLE_FAVORITES: list[dict[str, Any]] = [
 ]
 
 
-async def seed() -> None:
+async def seed(*, force: bool = False) -> None:
     logging.basicConfig(
         format="[%(levelname)s][%(asctime)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -980,6 +980,15 @@ async def seed() -> None:
     client: AsyncMongoClient[dict[str, Any]]
     async with AsyncMongoClient(url) as client:
         db: Any = client["evently"]
+
+        existing_events = await db["events"].count_documents({})
+        if existing_events > 0 and not force:
+            logger.info(
+                "Database already seeded (%d events). Skipping. "
+                "Use --force to drop and reseed.",
+                existing_events,
+            )
+            return
 
         for coll_name in ("users", "events", "attendance", "event_favorites"):
             existing = await db[coll_name].count_documents({})
@@ -1017,7 +1026,16 @@ async def seed() -> None:
 
 
 def cli() -> None:
-    asyncio.run(seed())
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Seed the Evently database")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Drop existing data and reseed from scratch",
+    )
+    args = parser.parse_args()
+    asyncio.run(seed(force=args.force))
 
 
 if __name__ == "__main__":

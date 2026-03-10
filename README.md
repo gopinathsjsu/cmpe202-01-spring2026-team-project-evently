@@ -22,13 +22,21 @@ User Roles:
 
 ## Quick Start
 
-The only prerequisite is [Docker](https://docs.docker.com/get-docker/). From the project root:
+Prerequisites: [Docker](https://docs.docker.com/get-docker/) and (optionally) [`just`](https://github.com/casey/just#packages) for convenience commands.
+
+**1. Create a `.env` file** from the template:
 
 ```bash
-docker compose up --build
+cp .env.example .env   # then edit credentials if desired
 ```
 
-This starts MongoDB, the FastAPI backend (with sample data), and the Next.js frontend in one command:
+**2. Start the full stack:**
+
+```bash
+just up          # or: docker compose up --build
+```
+
+This starts MongoDB, the FastAPI backend (with sample data), and the Next.js frontend:
 
 | Service  | URL                        |
 |----------|----------------------------|
@@ -36,9 +44,26 @@ This starts MongoDB, the FastAPI backend (with sample data), and the Next.js fro
 | Backend  | http://localhost:8000       |
 | MongoDB  | mongodb://localhost:27017   |
 
-To stop everything: `docker compose down`
+**3. Stop / reset:**
 
-To stop and wipe the database: `docker compose down -v`
+```bash
+just down        # stop all services
+just reset       # stop and wipe the database volume
+```
+
+## Local Development
+
+For development with hot reloading, run services outside Docker. Additional prerequisites: [`uv`](https://docs.astral.sh/uv/), [`pnpm`](https://pnpm.io/installation), and [`just`](https://github.com/casey/just#packages).
+
+```bash
+# Terminal 1 — start MongoDB + seed + backend (from project root)
+just backend
+
+# Terminal 2 — start the frontend (from project root)
+just frontend
+```
+
+Run `just` with no arguments to see all available commands.
 
 ## Architecture
 
