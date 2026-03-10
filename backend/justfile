@@ -19,7 +19,7 @@ check-env:
     fi
 
 # Start MongoDB, wait for it to be ready, and seed sample data
-db: check-env
+db: check-env _stop-stack-db
     docker compose up -d mongodb
     @echo "Waiting for MongoDB to accept connections..."
     @until docker compose exec mongodb mongosh --quiet \
@@ -38,6 +38,7 @@ dev: db
 # Stop MongoDB
 db-stop:
     docker compose down
+    @docker compose -f ../docker-compose.yml stop mongodb 2>/dev/null || true
 
 # View MongoDB logs
 db-logs:
@@ -49,3 +50,9 @@ restart: db-stop dev
 # Re-seed the database (drops existing data)
 seed: check-env
     uv run seed --force
+
+# ── Helpers ────────────────────────────────────────────────────────────
+
+[private]
+_stop-stack-db:
+    @docker compose -f ../docker-compose.yml stop mongodb 2>/dev/null || true
