@@ -539,8 +539,18 @@ async def test_create_event_all_categories(
     await _clean(db)
 
     categories = [
-        "Music", "Business", "Arts", "Food", "Sports", "Education",
-        "Theater", "Comedy", "Festival", "Conference", "Workshop", "Other",
+        "Music",
+        "Business",
+        "Arts",
+        "Food",
+        "Sports",
+        "Education",
+        "Theater",
+        "Comedy",
+        "Festival",
+        "Conference",
+        "Workshop",
+        "Other",
     ]
 
     _, client = _make_client(db)
@@ -581,9 +591,7 @@ async def test_create_event_missing_location_fields(
 
     _, client = _make_client(db)
     async with client:
-        resp = await client.post(
-            "/events/", json=_valid_payload(location=bad_location)
-        )
+        resp = await client.post("/events/", json=_valid_payload(location=bad_location))
 
     assert resp.status_code == 422
 
