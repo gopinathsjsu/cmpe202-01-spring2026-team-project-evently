@@ -441,7 +441,7 @@ export default function DiscoverPage() {
                   <ul className="mt-4 space-y-2">
                     {links.map((link) => (
                       <li key={link}>
-                        <a href="#" className="text-sm hover:text-black">{link}</a>
+                        <a href={link === "Help Center" ? "/help" : "#"} className="text-sm hover:text-black">{link}</a>
                       </li>
                     ))}
                   </ul>

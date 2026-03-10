@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
+from backend.routes.contact import router as contact_router
 from backend.routes.events import router as events_router
 from backend.routes.users import UPLOAD_DIR
 from backend.routes.users import router as users_router
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(events_router, prefix="/events", tags=["events"])
     app.include_router(users_router, prefix="/users", tags=["users"])
+    app.include_router(contact_router, prefix="/contact", tags=["contact"])
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
