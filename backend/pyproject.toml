@@ -12,6 +12,7 @@ dependencies = [
  "pymongo>=4.16.0",
  "python-multipart>=0.0.20",
  "uvicorn>=0.34.0",
+ "authlib>=1.6.9",
 ]
 
 [project.scripts]
