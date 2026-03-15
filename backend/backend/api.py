@@ -1,12 +1,14 @@
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from os import getenv
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
+from starlette.middleware.sessions import SessionMiddleware
 
 from backend.routes.auth import router as auth_router
 from backend.routes.contact import router as contact_router
@@ -36,6 +38,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    if not (session_secret_key := getenv("SESSION_SECRET_KEY")):
+        raise ValueError("SESSION_SECRET_KEY environment variable is not set")
+    app.add_middleware(
+        middleware_class=SessionMiddleware,
+        secret_key=session_secret_key,
+    )
+
     app.include_router(events_router, prefix="/events", tags=["events"])
     app.include_router(users_router, prefix="/users", tags=["users"])
     app.include_router(contact_router, prefix="/contact", tags=["contact"])
