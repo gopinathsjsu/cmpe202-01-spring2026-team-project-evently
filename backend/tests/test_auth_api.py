@@ -1,4 +1,5 @@
-from typing import Any
+from collections.abc import Iterator
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -8,14 +9,21 @@ from httpx import ASGITransport, AsyncClient
 from starlette.responses import RedirectResponse
 
 from backend.api import create_app
-from backend.routes.auth import oauth
+from backend.routes import auth as auth_routes
+
+
+@pytest.fixture(autouse=True)
+def clear_oauth_cache() -> Iterator[None]:
+    auth_routes.get_oauth.cache_clear()
+    yield
+    auth_routes.get_oauth.cache_clear()
 
 
 def _make_client() -> tuple[FastAPI, AsyncClient]:
     app = create_app()
 
     @app.get("/_test/session")
-    async def read_session(request: Request) -> dict[str, Any]:
+    async def read_session(request: Request) -> dict[str, object | None]:
         return {"user": request.session.get("user")}
 
     transport = ASGITransport(app=app)
@@ -24,12 +32,30 @@ def _make_client() -> tuple[FastAPI, AsyncClient]:
 
 
 @pytest.mark.asyncio
+async def test_login_returns_503_when_oauth_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("OAUTH_CLIENT_SECRET", raising=False)
+
+    _, client = _make_client()
+    async with client:
+        resp = await client.get("/auth/login")
+
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": auth_routes.OAUTH_NOT_CONFIGURED}
+
+
+@pytest.mark.asyncio
 async def test_login_redirects_to_google_and_uses_callback_url() -> None:
     _, client = _make_client()
     redirect = RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
     authorize_redirect = AsyncMock(return_value=redirect)
+    google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
 
-    with patch.object(oauth.google, "authorize_redirect", authorize_redirect):
+    with patch.object(
+        auth_routes, "get_google_client", return_value=google_client
+    ):
         async with client:
             resp = await client.get("/auth/login")
 
@@ -45,8 +71,11 @@ async def test_login_redirects_to_google_and_uses_callback_url() -> None:
 async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
     _, client = _make_client()
     authorize_redirect = AsyncMock(return_value="not-a-redirect")
+    google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
 
-    with patch.object(oauth.google, "authorize_redirect", authorize_redirect):
+    with patch.object(
+        auth_routes, "get_google_client", return_value=google_client
+    ):
         async with client:
             resp = await client.get("/auth/login")
 
@@ -63,8 +92,11 @@ async def test_callback_stores_userinfo_in_session() -> None:
         "name": "Test User",
     }
     authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
 
-    with patch.object(oauth.google, "authorize_access_token", authorize_access_token):
+    with patch.object(
+        auth_routes, "get_google_client", return_value=google_client
+    ):
         async with client:
             resp = await client.get("/auth/callback")
             session_resp = await client.get("/_test/session")
@@ -80,8 +112,11 @@ async def test_callback_returns_400_when_oauth_fails() -> None:
     authorize_access_token = AsyncMock(
         side_effect=OAuthError(error="access_denied", description="Denied")
     )
+    google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
 
-    with patch.object(oauth.google, "authorize_access_token", authorize_access_token):
+    with patch.object(
+        auth_routes, "get_google_client", return_value=google_client
+    ):
         async with client:
             resp = await client.get("/auth/callback")
 
@@ -98,8 +133,11 @@ async def test_logout_clears_session_and_redirects_home() -> None:
         "name": "Test User",
     }
     authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
 
-    with patch.object(oauth.google, "authorize_access_token", authorize_access_token):
+    with patch.object(
+        auth_routes, "get_google_client", return_value=google_client
+    ):
         async with client:
             await client.get("/auth/callback")
             before_logout = await client.get("/_test/session")
