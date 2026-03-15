@@ -1,0 +1,112 @@
+from typing import Any
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from authlib.integrations.starlette_client import OAuthError
+from fastapi import FastAPI, Request
+from httpx import ASGITransport, AsyncClient
+from starlette.responses import RedirectResponse
+
+from backend.api import create_app
+from backend.routes.auth import oauth
+
+
+def _make_client() -> tuple[FastAPI, AsyncClient]:
+    app = create_app()
+
+    @app.get("/_test/session")
+    async def read_session(request: Request) -> dict[str, Any]:
+        return {"user": request.session.get("user")}
+
+    transport = ASGITransport(app=app)
+    client = AsyncClient(transport=transport, base_url="http://test")
+    return app, client
+
+
+@pytest.mark.asyncio
+async def test_login_redirects_to_google_and_uses_callback_url() -> None:
+    _, client = _make_client()
+    redirect = RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+    authorize_redirect = AsyncMock(return_value=redirect)
+
+    with patch.object(oauth.google, "authorize_redirect", authorize_redirect):
+        async with client:
+            resp = await client.get("/auth/login")
+
+    await_args = authorize_redirect.await_args
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "https://accounts.google.com/o/oauth2/auth"
+    assert authorize_redirect.await_count == 1
+    assert await_args is not None
+    assert await_args.args[1] == "http://test/auth/callback"
+
+
+@pytest.mark.asyncio
+async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
+    _, client = _make_client()
+    authorize_redirect = AsyncMock(return_value="not-a-redirect")
+
+    with patch.object(oauth.google, "authorize_redirect", authorize_redirect):
+        async with client:
+            resp = await client.get("/auth/login")
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": "Failed to create redirect response"}
+
+
+@pytest.mark.asyncio
+async def test_callback_stores_userinfo_in_session() -> None:
+    _, client = _make_client()
+    userinfo = {
+        "sub": "google-oauth2|123",
+        "email": "user@example.com",
+        "name": "Test User",
+    }
+    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+
+    with patch.object(oauth.google, "authorize_access_token", authorize_access_token):
+        async with client:
+            resp = await client.get("/auth/callback")
+            session_resp = await client.get("/_test/session")
+
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/"
+    assert session_resp.json() == {"user": userinfo}
+
+
+@pytest.mark.asyncio
+async def test_callback_returns_400_when_oauth_fails() -> None:
+    _, client = _make_client()
+    authorize_access_token = AsyncMock(
+        side_effect=OAuthError(error="access_denied", description="Denied")
+    )
+
+    with patch.object(oauth.google, "authorize_access_token", authorize_access_token):
+        async with client:
+            resp = await client.get("/auth/callback")
+
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "OAuth authentication failed"}
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_session_and_redirects_home() -> None:
+    _, client = _make_client()
+    userinfo = {
+        "sub": "google-oauth2|123",
+        "email": "user@example.com",
+        "name": "Test User",
+    }
+    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+
+    with patch.object(oauth.google, "authorize_access_token", authorize_access_token):
+        async with client:
+            await client.get("/auth/callback")
+            before_logout = await client.get("/_test/session")
+            resp = await client.get("/auth/logout")
+            after_logout = await client.get("/_test/session")
+
+    assert before_logout.json() == {"user": userinfo}
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/"
+    assert after_logout.json() == {"user": None}
