@@ -44,6 +44,10 @@ This starts MongoDB, the FastAPI backend (with sample data), and the Next.js fro
 | Backend  | http://localhost:8000       |
 | MongoDB  | mongodb://localhost:27017   |
 
+The frontend container uses two API base URLs:
+- `NEXT_PUBLIC_API_URL=http://localhost:8000` for browser requests
+- `API_INTERNAL_URL=http://backend:8000` for server-side Next.js requests inside Docker
+
 **3. Stop / reset:**
 
 ```bash
