@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { getApiBase } from "@/lib/api-base";
 
 type EventCategory =
   | "Music" | "Business" | "Arts" | "Food" | "Sports" | "Education"
@@ -53,7 +52,7 @@ async function fetchEvents(params: {
   if (params.is_online !== undefined) search.set("is_online", String(params.is_online));
   if (params.price_type) search.set("price_type", params.price_type);
   if (params.date_preset) search.set("date_preset", params.date_preset);
-  const res = await fetch(`${API_BASE}/events/?${search.toString()}`);
+  const res = await fetch(`${getApiBase()}/events/?${search.toString()}`);
   if (!res.ok) throw new Error("Failed to fetch events");
   return res.json() as Promise<{ items: EventFromApi[]; total: number }>;
 }

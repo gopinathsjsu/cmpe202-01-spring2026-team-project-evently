@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { getApiBase } from "@/lib/api-base";
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -271,7 +270,7 @@ export default function HelpPage() {
         formData.append("attachment", contactFile);
       }
 
-      const res = await fetch(`${API_BASE}/contact/`, {
+      const res = await fetch(`${getApiBase()}/contact/`, {
         method: "POST",
         body: formData,
       });
