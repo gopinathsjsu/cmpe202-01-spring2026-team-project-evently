@@ -1,7 +1,7 @@
 """Seed the database with sample events.
 
 Usage:
-    source .env && uv run python -m backend.seed
+    uv run python -m backend.seed
 """
 
 from __future__ import annotations
