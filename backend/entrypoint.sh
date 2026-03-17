@@ -2,7 +2,7 @@
 set -e
 
 # build the mongodb container url
-if [ -n "${DB_USERNAME:-}" ] && [ -n "${DB_PASSWORD:-}" ]; then
+if [ -z "${DATABASE_URL:-}" ] && [ -n "${DB_USERNAME:-}" ] && [ -n "${DB_PASSWORD:-}" ]; then
     export DATABASE_URL="mongodb://${DB_USERNAME}:${DB_PASSWORD}@${MONGODB_HOST:-mongodb}:${MONGODB_PORT:-27017}"
 fi
 
