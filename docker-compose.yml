@@ -4,9 +4,15 @@ services:
     restart: unless-stopped
     ports:
       - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${DB_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${DB_PASSWORD}
+    env_file:
+      - ./backend/.env
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        export MONGO_INITDB_ROOT_USERNAME="$${DB_USERNAME:?DB_USERNAME is required}"
+        export MONGO_INITDB_ROOT_PASSWORD="$${DB_PASSWORD:?DB_PASSWORD is required}"
+        exec docker-entrypoint.sh mongod --bind_ip_all
     volumes:
       - mongodb_data:/data/db
     healthcheck:
@@ -19,6 +25,8 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     environment:
       DATABASE_URL: "mongodb://${DB_USERNAME}:${DB_PASSWORD}@mongodb:27017"
     depends_on:

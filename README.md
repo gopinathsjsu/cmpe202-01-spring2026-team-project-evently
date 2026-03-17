@@ -24,11 +24,13 @@ User Roles:
 
 Prerequisites: [Docker](https://docs.docker.com/get-docker/) and (optionally) [`just`](https://github.com/casey/just#packages) for convenience commands.
 
-**1. Create a `.env` file** from the template:
+**1. Create the backend env file** from the template:
 
 ```bash
-cp .env.example .env   # then edit credentials if desired
+cp backend/.env.example backend/.env
 ```
+
+Docker Compose reads `backend/.env` for MongoDB credentials.
 
 **2. Start the full stack:**
 
