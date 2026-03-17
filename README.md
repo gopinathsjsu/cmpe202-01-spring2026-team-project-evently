@@ -31,6 +31,7 @@ cp backend/.env.example backend/.env
 ```
 
 Docker Compose reads `backend/.env` for MongoDB credentials.
+Note: Any root-level `.env` / `.env.example` file (if present) is not used by this Docker Compose workflow and can be ignored.
 
 **2. Start the full stack:**
 
