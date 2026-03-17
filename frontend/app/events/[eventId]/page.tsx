@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
 import type { EventDetail, UserDetail } from "@/lib/types";
 import { ShareButtons } from "./share-buttons";
@@ -72,40 +73,8 @@ export default async function EventDetailPage({
   const spotsLeft = event.total_capacity - event.attending_count;
 
   return (
-    <div className="min-h-screen bg-zinc-50 font-sans dark:bg-zinc-950">
-      {/* ── Header / Navbar ─────────────────────────────────────── */}
-      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-6">
-            <a href="/" className="flex items-center gap-2 text-lg font-bold tracking-tight">
-              <span className="inline-block h-5 w-5 rounded bg-black dark:bg-white" />
-              Evently
-            </a>
-            <nav className="hidden gap-5 text-sm md:flex">
-              <a href="/events" className="text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white">
-                Browse Events
-              </a>
-              <a href="/create" className="text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white">
-                Create Event
-              </a>
-              <a href="#" className="text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white">
-                My Tickets
-              </a>
-            </nav>
-          </div>
-          <div className="flex items-center gap-3">
-            <a href="#" className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-white">
-              Sign In
-            </a>
-            <a
-              href="#"
-              className="rounded-full bg-black px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-            >
-              Sign Up
-            </a>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-white text-black font-sans antialiased">
+      <Navbar />
 
       {/* ── Main content ────────────────────────────────────────── */}
       <main className="mx-auto max-w-6xl px-4 py-8">
