@@ -70,7 +70,28 @@ def _make_client() -> tuple[FastAPI, AsyncClient]:
 
     @app.get("/_test/session")
     async def read_session(request: Request) -> dict[str, object | None]:
-        return {"user": request.session.get("user")}
+        return {
+            auth_routes._OAUTH_USER_SESSION_KEY: request.session.get(
+                auth_routes._OAUTH_USER_SESSION_KEY
+            ),
+            auth_routes._EVENTLY_USER_SESSION_KEY: request.session.get(
+                auth_routes._EVENTLY_USER_SESSION_KEY
+            ),
+            auth_routes._POST_AUTH_REDIRECT_KEY: request.session.get(
+                auth_routes._POST_AUTH_REDIRECT_KEY
+            ),
+        }
+
+    @app.post("/_test/session")
+    async def write_session(
+        request: Request, payload: dict[str, object | None]
+    ) -> dict[str, object | None]:
+        for key, value in payload.items():
+            if value is None:
+                request.session.pop(key, None)
+                continue
+            request.session[key] = value
+        return await read_session(request)
 
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
@@ -149,7 +170,11 @@ async def test_callback_stores_userinfo_in_session() -> None:
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "/"
-    assert session_resp.json() == {"user": userinfo}
+    assert session_resp.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
+        auth_routes._EVENTLY_USER_SESSION_KEY: 1,
+        auth_routes._POST_AUTH_REDIRECT_KEY: None,
+    }
 
 
 @pytest.mark.asyncio
@@ -178,22 +203,30 @@ async def test_logout_clears_session_and_redirects_home() -> None:
         "email": "user@example.com",
         "name": "Test User",
     }
-    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
-    google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
+    async with client:
+        before_logout = await client.post(
+            "/_test/session",
+            json={
+                auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
+                auth_routes._EVENTLY_USER_SESSION_KEY: 7,
+                auth_routes._POST_AUTH_REDIRECT_KEY: "http://localhost:3000/create",
+            },
+        )
+        resp = await client.get("/auth/logout")
+        after_logout = await client.get("/_test/session")
 
-    with patch.object(
-        auth_routes, "get_google_client", return_value=google_client
-    ):
-        async with client:
-            await client.get("/auth/callback")
-            before_logout = await client.get("/_test/session")
-            resp = await client.get("/auth/logout")
-            after_logout = await client.get("/_test/session")
-
-    assert before_logout.json() == {"user": userinfo}
+    assert before_logout.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
+        auth_routes._EVENTLY_USER_SESSION_KEY: 7,
+        auth_routes._POST_AUTH_REDIRECT_KEY: "http://localhost:3000/create",
+    }
     assert resp.status_code == 307
     assert resp.headers["location"] == "/"
-    assert after_logout.json() == {"user": None}
+    assert after_logout.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: None,
+        auth_routes._EVENTLY_USER_SESSION_KEY: None,
+        auth_routes._POST_AUTH_REDIRECT_KEY: None,
+    }
 
 
 @pytest.mark.asyncio
@@ -232,10 +265,16 @@ async def test_callback_redirects_back_to_frontend_and_exposes_session_user() ->
         async with client:
             await client.get("http://test/auth/login?next=http://localhost:3000/create")
             resp = await client.get("/auth/callback")
+            stored_session = await client.get("/_test/session")
             session_resp = await client.get("/auth/session")
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "http://localhost:3000/create"
+    assert stored_session.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
+        auth_routes._EVENTLY_USER_SESSION_KEY: 7,
+        auth_routes._POST_AUTH_REDIRECT_KEY: None,
+    }
     assert session_resp.status_code == 200
     assert session_resp.json() == {
         "user": {
@@ -292,6 +331,152 @@ async def test_callback_redirects_to_configured_frontend_origin(
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "https://frontend.example.com/create"
+
+
+@pytest.mark.asyncio
+async def test_login_uses_allowed_referer_as_post_auth_redirect() -> None:
+    _, client = _make_client()
+    authorize_redirect = AsyncMock(
+        return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+    )
+    google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
+
+    with patch.object(
+        auth_routes, "get_google_client", return_value=google_client
+    ):
+        async with client:
+            await client.get(
+                "/auth/login",
+                headers={"referer": "http://localhost:3000/events/42"},
+            )
+            session_resp = await client.get("/_test/session")
+
+    assert session_resp.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: None,
+        auth_routes._EVENTLY_USER_SESSION_KEY: None,
+        auth_routes._POST_AUTH_REDIRECT_KEY: "http://localhost:3000/events/42",
+    }
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_disallowed_next_and_falls_back_to_primary_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
+
+    _, client = _make_client()
+    authorize_redirect = AsyncMock(
+        return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+    )
+    google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
+
+    with patch.object(
+        auth_routes, "get_google_client", return_value=google_client
+    ):
+        async with client:
+            await client.get("/auth/login?next=https://evil.example.com/phish")
+            session_resp = await client.get("/_test/session")
+
+    assert session_resp.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: None,
+        auth_routes._EVENTLY_USER_SESSION_KEY: None,
+        auth_routes._POST_AUTH_REDIRECT_KEY: "https://frontend.example.com",
+    }
+
+
+@pytest.mark.asyncio
+async def test_auth_session_uses_existing_local_user_without_recreating() -> None:
+    app, client = _make_client()
+    stored_user = User(
+        id=7,
+        username="testuser",
+        first_name="Test",
+        last_name="User",
+        email="user@example.com",
+        profile_photo_url="https://example.com/profile.png",
+    )
+    await app.state.db["users"].insert_one(stored_user.model_dump(mode="json"))
+    resolve_or_create_local_user = AsyncMock()
+
+    with patch.object(
+        auth_routes,
+        "_resolve_or_create_local_user",
+        resolve_or_create_local_user,
+    ):
+        async with client:
+            await client.post(
+                "/_test/session",
+                json={
+                    auth_routes._OAUTH_USER_SESSION_KEY: {
+                        "picture": "https://example.com/oauth.png"
+                    },
+                    auth_routes._EVENTLY_USER_SESSION_KEY: 7,
+                },
+            )
+            resp = await client.get("/auth/session")
+
+    assert resolve_or_create_local_user.await_count == 0
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "user": {
+            "id": 7,
+            "email": "user@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "name": "Test User",
+            "picture": "https://example.com/oauth.png",
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_auth_session_creates_local_user_from_oauth_session() -> None:
+    _, client = _make_client()
+    userinfo = {
+        "email": "user@example.com",
+        "given_name": "Test",
+        "family_name": "User",
+        "picture": "https://example.com/oauth.png",
+    }
+    local_user = User(
+        id=9,
+        username="testuser",
+        first_name="Test",
+        last_name="User",
+        email="user@example.com",
+    )
+    resolve_or_create_local_user = AsyncMock(return_value=local_user)
+
+    with patch.object(
+        auth_routes,
+        "_resolve_or_create_local_user",
+        resolve_or_create_local_user,
+    ):
+        async with client:
+            await client.post(
+                "/_test/session",
+                json={auth_routes._OAUTH_USER_SESSION_KEY: userinfo},
+            )
+            resp = await client.get("/auth/session")
+            session_resp = await client.get("/_test/session")
+
+    assert resolve_or_create_local_user.await_count == 1
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "user": {
+            "id": 9,
+            "email": "user@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "name": "Test User",
+            "picture": "https://example.com/oauth.png",
+        }
+    }
+    assert session_resp.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
+        auth_routes._EVENTLY_USER_SESSION_KEY: 9,
+        auth_routes._POST_AUTH_REDIRECT_KEY: None,
+    }
 
 
 @pytest.mark.asyncio
