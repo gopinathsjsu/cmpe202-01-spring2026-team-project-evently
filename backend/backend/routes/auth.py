@@ -77,6 +77,77 @@ def _resolve_redirect_target(request: Request) -> str:
     return "/"
 
 
+def _string_value(value: object) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    return None
+
+
+def _derive_names(userinfo: Mapping[str, object], email: str) -> tuple[str, str]:
+    first_name = _string_value(userinfo.get("given_name"))
+    last_name = _string_value(userinfo.get("family_name"))
+    if first_name:
+        return first_name, last_name or ""
+
+    full_name = _string_value(userinfo.get("name"))
+    if full_name:
+        parts = full_name.split(maxsplit=1)
+        return parts[0], parts[1] if len(parts) > 1 else ""
+
+    return email.split("@", maxsplit=1)[0], ""
+
+
+def _base_username(userinfo: Mapping[str, object], email: str) -> str:
+    candidate = (
+        _string_value(userinfo.get("preferred_username"))
+        or email.split("@", maxsplit=1)[0]
+    )
+    sanitized = USERNAME_SANITIZER.sub("", candidate.lower().replace("-", "_"))
+    return sanitized or "evently_user"
+
+
+async def _next_user_id(db: AsyncDatabase[dict[str, Any]]) -> int:
+    last = await db["users"].find_one(sort=[("id", DESCENDING)])
+    return int(last["id"]) + 1 if last else 1
+
+
+async def _unique_username(
+    db: AsyncDatabase[dict[str, Any]], base_username: str
+) -> str:
+    username = base_username
+    suffix = 1
+    while await db["users"].find_one({"username": username}, {"_id": 1}) is not None:
+        suffix += 1
+        username = f"{base_username}{suffix}"
+    return username
+
+
+async def _resolve_or_create_local_user(
+    db: AsyncDatabase[dict[str, Any]], userinfo: Mapping[str, object]
+) -> User | None:
+    email = _string_value(userinfo.get("email"))
+    if email is None:
+        return None
+
+    existing = await db["users"].find_one({"email": email})
+    if existing is not None:
+        return User(**existing)
+
+    first_name, last_name = _derive_names(userinfo, email)
+    username = await _unique_username(db, _base_username(userinfo, email))
+    user = User(
+        id=await _next_user_id(db),
+        username=username,
+        first_name=first_name,
+        last_name=last_name,
+        email=email,
+        profile_photo_url=_string_value(userinfo.get("picture")),
+    )
+    await db["users"].insert_one(user.model_dump(mode="json"))
+    return user
+
+
 @lru_cache(maxsize=1)
 def get_oauth() -> OAuth:
     client_id = getenv("OAUTH_CLIENT_ID")
