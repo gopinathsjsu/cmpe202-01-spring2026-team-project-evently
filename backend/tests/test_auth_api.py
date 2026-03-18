@@ -10,7 +10,51 @@ from httpx import ASGITransport, AsyncClient
 from starlette.responses import RedirectResponse
 
 from backend.api import create_app
+from backend.app_config import build_frontend_settings
+from backend.models.user import User
 from backend.routes import auth as auth_routes
+
+
+class _FakeCollection:
+    def __init__(self) -> None:
+        self._docs: list[dict[str, object]] = []
+
+    async def find_one(
+        self,
+        query: dict[str, object] | None = None,
+        _projection: dict[str, int] | None = None,
+        *,
+        sort: list[tuple[str, int]] | None = None,
+    ) -> dict[str, object] | None:
+        if sort:
+            field, direction = sort[0]
+            if not self._docs:
+                return None
+            reverse = direction < 0
+            return sorted(
+                self._docs,
+                key=lambda doc: cast(int, doc.get(field, 0)),
+                reverse=reverse,
+            )[0]
+
+        if not query:
+            return self._docs[0] if self._docs else None
+
+        for doc in self._docs:
+            if all(doc.get(key) == value for key, value in query.items()):
+                return doc
+        return None
+
+    async def insert_one(self, doc: dict[str, object]) -> None:
+        self._docs.append(doc)
+
+
+class _FakeDb:
+    def __init__(self) -> None:
+        self._collections = {"users": _FakeCollection()}
+
+    def __getitem__(self, name: str) -> _FakeCollection:
+        return self._collections.setdefault(name, _FakeCollection())
 
 
 @pytest.fixture(autouse=True)
@@ -22,6 +66,7 @@ def clear_oauth_cache() -> Iterator[None]:
 
 def _make_client() -> tuple[FastAPI, AsyncClient]:
     app = create_app()
+    app.state.db = _FakeDb()
 
     @app.get("/_test/session")
     async def read_session(request: Request) -> dict[str, object | None]:
@@ -151,6 +196,59 @@ async def test_logout_clears_session_and_redirects_home() -> None:
     assert after_logout.json() == {"user": None}
 
 
+@pytest.mark.asyncio
+async def test_callback_redirects_back_to_frontend_and_exposes_session_user() -> None:
+    _, client = _make_client()
+    userinfo = {
+        "sub": "google-oauth2|123",
+        "email": "user@example.com",
+        "name": "Test User",
+        "given_name": "Test",
+        "family_name": "User",
+        "picture": "https://example.com/avatar.png",
+    }
+    local_user = User(
+        id=7,
+        username="testuser",
+        first_name="Test",
+        last_name="User",
+        email="user@example.com",
+    )
+    authorize_redirect = AsyncMock(return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth"))
+    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    google_client = SimpleNamespace(
+        authorize_access_token=authorize_access_token,
+        authorize_redirect=authorize_redirect,
+    )
+
+    with (
+        patch.object(auth_routes, "get_google_client", return_value=google_client),
+        patch.object(
+            auth_routes,
+            "_resolve_or_create_local_user",
+            AsyncMock(return_value=local_user),
+        ),
+    ):
+        async with client:
+            await client.get("http://test/auth/login?next=http://localhost:3000/create")
+            resp = await client.get("/auth/callback")
+            session_resp = await client.get("/auth/session")
+
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "http://localhost:3000/create"
+    assert session_resp.status_code == 200
+    assert session_resp.json() == {
+        "user": {
+            "id": 7,
+            "email": "user@example.com",
+            "first_name": "Test",
+            "last_name": "User",
+            "name": "Test User",
+            "picture": "https://example.com/avatar.png",
+        }
+    }
+
+
 def test_build_frontend_settings_normalizes_frontend_url() -> None:
     settings = build_frontend_settings("https://frontend.example.com/create?x=1")
 
@@ -194,3 +292,23 @@ async def test_callback_redirects_to_configured_frontend_origin(
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "https://frontend.example.com/create"
+
+
+@pytest.mark.asyncio
+async def test_resolve_or_create_local_user_stores_roles_as_list() -> None:
+    db = _FakeDb()
+
+    user = await auth_routes._resolve_or_create_local_user(
+        cast(Any, db),
+        {
+            "email": "new-user@example.com",
+            "given_name": "New",
+            "family_name": "User",
+        },
+    )
+
+    stored = await db["users"].find_one({"email": "new-user@example.com"})
+
+    assert user is not None
+    assert stored is not None
+    assert stored["roles"] == ["user"]
