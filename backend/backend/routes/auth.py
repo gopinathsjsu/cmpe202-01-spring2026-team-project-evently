@@ -268,5 +268,7 @@ async def login(request: Request) -> RedirectResponse:
 @router.get("/logout")
 async def logout(request: Request) -> RedirectResponse:
     """Log the user out by clearing the session and redirecting to the homepage."""
-    request.session.pop("user", None)
-    return RedirectResponse(url="/")
+    request.session.pop(_OAUTH_USER_SESSION_KEY, None)
+    request.session.pop(_EVENTLY_USER_SESSION_KEY, None)
+    request.session.pop(_POST_AUTH_REDIRECT_KEY, None)
+    return RedirectResponse(url=_resolve_redirect_target(request))
