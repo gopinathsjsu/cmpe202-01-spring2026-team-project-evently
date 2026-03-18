@@ -232,7 +232,7 @@ def get_google_client() -> GoogleOAuthClientAdapter:
 
 
 @router.get("/callback")
-async def auth(request: Request) -> RedirectResponse:
+async def auth(request: Request, db: DbDep) -> RedirectResponse:
     """Handle the OAuth callback from Google."""
     google_client = get_google_client()
     try:
@@ -244,9 +244,12 @@ async def auth(request: Request) -> RedirectResponse:
         ) from e
 
     if (user := token.get("userinfo")) and is_google_userinfo(user):
-        request.session["user"] = dict(user)
+        request.session[_OAUTH_USER_SESSION_KEY] = dict(user)
+        if local_user := await _resolve_or_create_local_user(db, user):
+            request.session[_EVENTLY_USER_SESSION_KEY] = local_user.id
 
-    return RedirectResponse(url="/")
+    redirect_to = request.session.pop(_POST_AUTH_REDIRECT_KEY, "/")
+    return RedirectResponse(url=redirect_to)
 
 
 @router.get("/login")
