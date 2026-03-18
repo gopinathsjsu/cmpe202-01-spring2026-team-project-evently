@@ -17,6 +17,19 @@ CONF_URL = "https://accounts.google.com/.well-known/openid-configuration"
 OAUTH_NOT_CONFIGURED = "Google OAuth is not configured"
 
 
+class AuthSessionUser(BaseModel):
+    id: int
+    email: str
+    first_name: str
+    last_name: str
+    name: str
+    picture: str | None = None
+
+
+class AuthSessionResponse(BaseModel):
+    user: AuthSessionUser | None
+
+
 class GoogleOAuthClientProtocol(Protocol):
     async def authorize_access_token(
         self, request: Request, **kwargs: object
@@ -272,3 +285,9 @@ async def logout(request: Request) -> RedirectResponse:
     request.session.pop(_EVENTLY_USER_SESSION_KEY, None)
     request.session.pop(_POST_AUTH_REDIRECT_KEY, None)
     return RedirectResponse(url=_resolve_redirect_target(request))
+
+
+@router.get("/session", response_model=AuthSessionResponse)
+async def read_auth_session(db: DbDep, request: Request) -> AuthSessionResponse:
+    """Return the current authentication session, including user information if authenticated."""
+    return AuthSessionResponse(user=await _get_authenticated_user(db, request))
