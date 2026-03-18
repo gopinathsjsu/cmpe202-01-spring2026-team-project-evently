@@ -265,6 +265,7 @@ async def auth(request: Request, db: DbDep) -> RedirectResponse:
     return RedirectResponse(url=redirect_to)
 
 
+@router.get("/signin")
 @router.get("/login")
 async def login(request: Request) -> RedirectResponse:
     """Initiate the OAuth login flow by redirecting to Google's authorization endpoint."""
