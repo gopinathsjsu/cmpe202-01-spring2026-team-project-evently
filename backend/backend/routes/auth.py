@@ -148,6 +148,54 @@ async def _resolve_or_create_local_user(
     return user
 
 
+async def _get_authenticated_user(
+    db: AsyncDatabase[dict[str, Any]], request: Request
+) -> AuthSessionUser | None:
+    local_user_id = request.session.get(_EVENTLY_USER_SESSION_KEY)
+    if isinstance(local_user_id, int):
+        existing = await db["users"].find_one({"id": local_user_id})
+        if existing is not None:
+            user = User(**existing)
+            oauth_user = request.session.get(_OAUTH_USER_SESSION_KEY)
+            picture = None
+            if is_google_userinfo(oauth_user):
+                picture = _string_value(oauth_user.get("picture"))
+            full_name = " ".join(
+                part for part in [user.first_name, user.last_name] if part
+            ).strip()
+            return AuthSessionUser(
+                id=user.id,
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                name=full_name or user.username,
+                picture=picture or user.profile_photo_url,
+            )
+
+    oauth_user = request.session.get(_OAUTH_USER_SESSION_KEY)
+    if not is_google_userinfo(oauth_user):
+        return None
+
+    local_user = await _resolve_or_create_local_user(db, oauth_user)
+    if local_user is None:
+        return None
+
+    request.session[_EVENTLY_USER_SESSION_KEY] = local_user.id
+    full_name = " ".join(
+        part for part in [local_user.first_name, local_user.last_name] if part
+    ).strip()
+
+    return AuthSessionUser(
+        id=local_user.id,
+        email=local_user.email,
+        first_name=local_user.first_name,
+        last_name=local_user.last_name,
+        name=full_name or local_user.username,
+        picture=_string_value(oauth_user.get("picture"))
+        or local_user.profile_photo_url,
+    )
+
+
 @lru_cache(maxsize=1)
 def get_oauth() -> OAuth:
     client_id = getenv("OAUTH_CLIENT_ID")
