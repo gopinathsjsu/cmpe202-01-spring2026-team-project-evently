@@ -1,20 +1,37 @@
 import logging
+import re
 from collections.abc import Mapping
 from functools import lru_cache
 from os import getenv
-from typing import Protocol, TypeGuard, cast
+from typing import Annotated, Any, Protocol, TypeGuard, cast
+from urllib.parse import urlsplit, urlunsplit
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from pymongo import DESCENDING
+from pymongo.asynchronous.database import AsyncDatabase
 from starlette.config import Config
 from starlette.datastructures import URL
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
-router = APIRouter()
+from backend.app_config import get_frontend_settings
+from backend.db import get_db
+from backend.models.user import User
 
 CONF_URL = "https://accounts.google.com/.well-known/openid-configuration"
+
 OAUTH_NOT_CONFIGURED = "Google OAuth is not configured"
+USERNAME_SANITIZER = re.compile(r"[^a-z0-9_]+")
+
+_OAUTH_USER_SESSION_KEY = "user"
+_EVENTLY_USER_SESSION_KEY = "evently_user_id"
+_POST_AUTH_REDIRECT_KEY = "post_auth_redirect"
+
+DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
+
+router = APIRouter()
 
 
 class AuthSessionUser(BaseModel):
