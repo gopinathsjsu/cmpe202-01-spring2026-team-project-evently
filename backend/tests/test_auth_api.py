@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -148,3 +149,48 @@ async def test_logout_clears_session_and_redirects_home() -> None:
     assert resp.status_code == 307
     assert resp.headers["location"] == "/"
     assert after_logout.json() == {"user": None}
+
+
+def test_build_frontend_settings_normalizes_frontend_url() -> None:
+    settings = build_frontend_settings("https://frontend.example.com/create?x=1")
+
+    assert settings.primary_origin == "https://frontend.example.com"
+    assert settings.allowed_origins == (
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://frontend.example.com",
+    )
+
+
+@pytest.mark.asyncio
+async def test_callback_redirects_to_configured_frontend_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
+
+    _, client = _make_client()
+    userinfo = {
+        "sub": "google-oauth2|123",
+        "email": "user@example.com",
+        "name": "Test User",
+    }
+    authorize_redirect = AsyncMock(
+        return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+    )
+    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    google_client = SimpleNamespace(
+        authorize_access_token=authorize_access_token,
+        authorize_redirect=authorize_redirect,
+    )
+
+    with patch.object(
+        auth_routes, "get_google_client", return_value=google_client
+    ):
+        async with client:
+            await client.get(
+                "http://test/auth/login?next=https://frontend.example.com/create"
+            )
+            resp = await client.get("/auth/callback")
+
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "https://frontend.example.com/create"

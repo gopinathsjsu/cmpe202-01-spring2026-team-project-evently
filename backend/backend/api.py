@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 from starlette.middleware.sessions import SessionMiddleware
 
+from backend.app_config import build_frontend_settings
 from backend.routes.auth import router as auth_router
 from backend.routes.contact import router as contact_router
 from backend.routes.events import router as events_router
@@ -31,9 +32,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Evently API", lifespan=lifespan)
+    app.state.frontend_settings = build_frontend_settings(getenv("FRONTEND_URL"))
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_origins=list(app.state.frontend_settings.allowed_origins),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
