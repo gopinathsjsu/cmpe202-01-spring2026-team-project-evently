@@ -47,6 +47,36 @@ def is_google_userinfo(value: object) -> TypeGuard[Mapping[str, object]]:
     return isinstance(value, Mapping) and all(isinstance(key, str) for key in value)
 
 
+def _sanitize_redirect_target(candidate: str | None, request: Request) -> str | None:
+    if not candidate:
+        return None
+
+    parts = urlsplit(candidate)
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        return None
+
+    origin = f"{parts.scheme}://{parts.netloc}"
+    if origin not in get_frontend_settings(request.app).allowed_origins:
+        return None
+
+    return urlunsplit(parts)
+
+
+def _resolve_redirect_target(request: Request) -> str:
+    if next_target := _sanitize_redirect_target(
+        request.query_params.get("next"), request
+    ):
+        return next_target
+
+    if referer := _sanitize_redirect_target(request.headers.get("referer"), request):
+        return referer
+
+    if frontend_origin := get_frontend_settings(request.app).primary_origin:
+        return frontend_origin
+
+    return "/"
+
+
 @lru_cache(maxsize=1)
 def get_oauth() -> OAuth:
     client_id = getenv("OAUTH_CLIENT_ID")
@@ -104,6 +134,7 @@ async def auth(request: Request) -> RedirectResponse:
 async def login(request: Request) -> RedirectResponse:
     """Initiate the OAuth login flow by redirecting to Google's authorization endpoint."""
     google_client = get_google_client()
+    request.session[_POST_AUTH_REDIRECT_KEY] = _resolve_redirect_target(request)
     redir = await google_client.authorize_redirect(request, request.url_for("auth"))
     if not isinstance(redir, RedirectResponse):
         raise HTTPException(
