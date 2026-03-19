@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { AuthNav } from "@/components/auth-nav";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import type {
@@ -140,15 +141,24 @@ export default function CreateEventPage() {
               <a href="/create" className="text-sm font-medium text-black">Create Event</a>
             </nav>
           </div>
-          <div className="flex items-center gap-4">
-            <a href="/signin" className="text-sm font-medium text-gray-700 hover:text-black">Sign In</a>
-            <a href="/signup" className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">Sign Up</a>
-          </div>
+          <AuthNav />
         </div>
       </header>
 
       <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
         <h1 className="text-3xl font-bold tracking-tight">Create New Event</h1>
+
+        {authLoading && (
+          <div className="mt-6 rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+            Loading your session...
+          </div>
+        )}
+
+        {authError && (
+          <div className="mt-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {authError}
+          </div>
+        )}
 
         {error && (
           <div className="mt-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -166,6 +176,7 @@ export default function CreateEventPage() {
                 <input
                   id="title"
                   required
+                  disabled={authLoading || !user}
                   className={inputClass}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -180,6 +191,7 @@ export default function CreateEventPage() {
                 <select
                   id="category"
                   required
+                  disabled={authLoading || !user}
                   className={inputClass}
                   value={category}
                   onChange={(e) => setCategory(e.target.value as EventCategory)}
@@ -205,6 +217,7 @@ export default function CreateEventPage() {
                     type="date"
                     required
                     min={todayStr}
+                    disabled={authLoading || !user}
                     className={inputClass}
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
@@ -219,6 +232,7 @@ export default function CreateEventPage() {
                     type="time"
                     required
                     min={startDate === todayStr ? currentTimeStr : undefined}
+                    disabled={authLoading || !user}
                     className={inputClass}
                     value={startTime}
                     onChange={(e) => setStartTime(e.target.value)}
@@ -233,6 +247,7 @@ export default function CreateEventPage() {
                     type="date"
                     required
                     min={startDate || todayStr}
+                    disabled={authLoading || !user}
                     className={inputClass}
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
@@ -247,6 +262,7 @@ export default function CreateEventPage() {
                     type="time"
                     required
                     min={endDate === startDate ? startTime : undefined}
+                    disabled={authLoading || !user}
                     className={inputClass}
                     value={endTime}
                     onChange={(e) => setEndTime(e.target.value)}
@@ -261,6 +277,7 @@ export default function CreateEventPage() {
                 <input
                   id="location"
                   required
+                  disabled={authLoading || !user}
                   className={inputClass}
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
@@ -274,7 +291,7 @@ export default function CreateEventPage() {
           <div className="flex items-center gap-4 border-t border-gray-200 pt-6">
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || authLoading || !user}
               className="rounded-md bg-black px-6 py-3 text-base font-medium text-white hover:bg-gray-800 disabled:opacity-50"
             >
               {submitting ? "Publishing…" : "Publish Event"}
