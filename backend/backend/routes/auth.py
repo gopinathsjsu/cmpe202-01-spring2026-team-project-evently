@@ -226,6 +226,12 @@ async def _get_authenticated_user(
     )
 
 
+async def require_authenticated_user(db: DbDep, request: Request) -> AuthSessionUser:
+    if (user := await _get_authenticated_user(db, request)) is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return user
+
+
 @lru_cache(maxsize=1)
 def get_oauth() -> OAuth:
     client_id = getenv("OAUTH_CLIENT_ID")

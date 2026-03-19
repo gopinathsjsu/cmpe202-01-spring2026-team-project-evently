@@ -10,6 +10,7 @@ from backend.api import create_app
 from backend.db import get_db
 from backend.models.attendance import AttendanceStatus, EventAttendance
 from backend.models.user import GlobalRole, User, UserProfile
+from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 
 def _role_set_to_string_list(roles: set[GlobalRole]) -> list[str]:
@@ -18,13 +19,26 @@ def _role_set_to_string_list(roles: set[GlobalRole]) -> list[str]:
 
 def _make_client(
     db: AsyncDatabase[dict[str, Any]],
+    auth_user: AuthSessionUser | None = None,
 ) -> tuple[Any, AsyncClient]:
     """Build an app with the DB dependency overridden."""
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
+    if auth_user is not None:
+        app.dependency_overrides[require_authenticated_user] = lambda: auth_user
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client
+
+
+def _auth_user(user_id: int = 1) -> AuthSessionUser:
+    return AuthSessionUser(
+        id=user_id,
+        email=f"user{user_id}@example.com",
+        first_name="Test",
+        last_name="User",
+        name="Test User",
+    )
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
@@ -44,7 +58,7 @@ async def test_get_user_detail(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1")
 
@@ -70,7 +84,7 @@ async def test_get_user_not_found(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/9999")
     assert resp.status_code == 404
@@ -93,7 +107,7 @@ async def test_get_user_with_events_created(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1")
 
@@ -124,7 +138,7 @@ async def test_get_user_with_events_attended(
     ]
     await db["attendance"].insert_many([a.model_dump() for a in attendances])
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1")
 
@@ -160,7 +174,7 @@ async def test_get_user_with_profile_social_handles(
     doc["roles"] = _role_set_to_string_list(doc["roles"])
     await db["users"].insert_one(doc)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1")
 
@@ -190,7 +204,7 @@ async def test_get_user_with_admin_role(
     doc["roles"] = _role_set_to_string_list(doc["roles"])
     await db["users"].insert_one(doc)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1")
 
@@ -217,7 +231,7 @@ async def test_get_user_minimal_profile(
     doc["roles"] = _role_set_to_string_list(doc["roles"])
     await db["users"].insert_one(doc)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1")
 
@@ -239,7 +253,7 @@ async def test_update_user_profile(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.patch(
             "/users/1",
@@ -271,7 +285,7 @@ async def test_update_user_partial(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.patch("/users/1", json={"first_name": "Patched"})
 
@@ -290,11 +304,41 @@ async def test_update_user_not_found(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user(9999))
     async with client:
         resp = await client.patch("/users/9999", json={"first_name": "Ghost"})
     assert resp.status_code == 404
     assert resp.json()["detail"] == "User not found"
+
+
+@pytest.mark.asyncio
+async def test_update_user_requires_authentication(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+
+    _, client = _make_client(db)
+    async with client:
+        resp = await client.patch("/users/1", json={"first_name": "Updated"})
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Authentication required"
+
+
+@pytest.mark.asyncio
+async def test_update_user_forbids_modifying_other_user(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+
+    _, client = _make_client(db, auth_user=_auth_user(2))
+    async with client:
+        resp = await client.patch("/users/1", json={"first_name": "Updated"})
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "You can only modify your own user."
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +355,7 @@ async def test_upload_photo(
 
     fake_image = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/users/1/photo",
@@ -334,7 +378,7 @@ async def test_upload_photo_invalid_type(
 
     fake_file = BytesIO(b"not an image")
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/users/1/photo",
@@ -353,13 +397,53 @@ async def test_upload_photo_not_found(
 
     fake_image = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user(9999))
     async with client:
         resp = await client.post(
             "/users/9999/photo",
             files={"file": ("avatar.png", fake_image, "image/png")},
         )
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_upload_photo_requires_authentication(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+
+    fake_image = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    _, client = _make_client(db)
+    async with client:
+        resp = await client.post(
+            "/users/1/photo",
+            files={"file": ("avatar.png", fake_image, "image/png")},
+        )
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Authentication required"
+
+
+@pytest.mark.asyncio
+async def test_upload_photo_forbids_modifying_other_user(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+
+    fake_image = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+    _, client = _make_client(db, auth_user=_auth_user(2))
+    async with client:
+        resp = await client.post(
+            "/users/1/photo",
+            files={"file": ("avatar.png", fake_image, "image/png")},
+        )
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "You can only modify your own user."
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +460,7 @@ async def test_delete_photo(
 
     fake_image = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         upload_resp = await client.post(
             "/users/1/photo",
@@ -397,10 +481,40 @@ async def test_delete_photo_not_found(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user(9999))
     async with client:
         resp = await client.delete("/users/9999/photo")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_photo_requires_authentication(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+
+    _, client = _make_client(db)
+    async with client:
+        resp = await client.delete("/users/1/photo")
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Authentication required"
+
+
+@pytest.mark.asyncio
+async def test_delete_photo_forbids_modifying_other_user(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+
+    _, client = _make_client(db, auth_user=_auth_user(2))
+    async with client:
+        resp = await client.delete("/users/1/photo")
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "You can only modify your own user."
 
 
 # ---------------------------------------------------------------------------

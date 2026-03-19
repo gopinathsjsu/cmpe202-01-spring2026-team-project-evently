@@ -10,10 +10,12 @@ from pymongo.asynchronous.database import AsyncDatabase
 from backend.db import get_db
 from backend.models.event import Event, EventCategory, EventScheduleEntry, Location
 from backend.models.event_favorite import EventFavorite
+from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 router = APIRouter()
 
 DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
+AuthUserDep = Annotated[AuthSessionUser, Depends(require_authenticated_user)]
 
 # ---------------------------------------------------------------------------
 # Response schemas
@@ -113,7 +115,6 @@ class FavoriteRemoveResponse(BaseModel):
 class EventCreate(BaseModel):
     title: str
     about: str
-    organizer_user_id: int
     price: float = 0.0
     total_capacity: int
     start_time: datetime
@@ -143,11 +144,6 @@ class EventCreate(BaseModel):
         if self.end_time <= self.start_time:
             raise ValueError("End time must be after start time")
         return self
-
-
-class FavoriteRequest(BaseModel):
-    user_id: int
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -336,7 +332,9 @@ async def get_event(db: DbDep, event_id: int) -> EventDetail:
 
 
 @router.post("/", response_model=EventDetail, status_code=201)
-async def create_event(db: DbDep, body: EventCreate) -> EventDetail:
+async def create_event(
+    db: DbDep, body: EventCreate, current_user: AuthUserDep
+) -> EventDetail:
     """Create a new event and return its full detail."""
     new_id = await _next_event_id(db)
 
@@ -344,7 +342,7 @@ async def create_event(db: DbDep, body: EventCreate) -> EventDetail:
         id=new_id,
         title=body.title,
         about=body.about,
-        organizer_user_id=body.organizer_user_id,
+        organizer_user_id=current_user.id,
         price=body.price,
         total_capacity=body.total_capacity,
         start_time=body.start_time,
@@ -370,14 +368,14 @@ async def create_event(db: DbDep, body: EventCreate) -> EventDetail:
     "/{event_id}/favorites", response_model=FavoriteAddResponse, status_code=201
 )
 async def add_favorite(
-    db: DbDep, event_id: int, body: FavoriteRequest
+    db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> FavoriteAddResponse:
     """Add an event to a user's favorites (idempotent)."""
     event = await db["events"].find_one({"id": event_id})
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    favorite = EventFavorite(event_id=event_id, user_id=body.user_id)
+    favorite = EventFavorite(event_id=event_id, user_id=current_user.id)
 
     existing = await db["event_favorites"].find_one(
         {"event_id": favorite.event_id, "user_id": favorite.user_id}
@@ -385,7 +383,7 @@ async def add_favorite(
     if existing is None:
         await db["event_favorites"].insert_one(favorite.model_dump())
 
-    return FavoriteAddResponse(event_id=event_id, user_id=body.user_id)
+    return FavoriteAddResponse(event_id=event_id, user_id=current_user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -397,15 +395,15 @@ async def add_favorite(
     "/{event_id}/favorites", response_model=FavoriteRemoveResponse, status_code=200
 )
 async def remove_favorite(
-    db: DbDep, event_id: int, body: FavoriteRequest
+    db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> FavoriteRemoveResponse:
     """Remove an event from a user's favorites."""
     event = await db["events"].find_one({"id": event_id})
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    favorite = EventFavorite(event_id=event_id, user_id=body.user_id)
+    favorite = EventFavorite(event_id=event_id, user_id=current_user.id)
     await db["event_favorites"].delete_one(
         {"event_id": favorite.event_id, "user_id": favorite.user_id}
     )
-    return FavoriteRemoveResponse(event_id=event_id, user_id=body.user_id)
+    return FavoriteRemoveResponse(event_id=event_id, user_id=current_user.id)

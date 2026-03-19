@@ -80,7 +80,6 @@ export default function CreateEventPage() {
     const payload: EventCreatePayload = {
       title: title.trim(),
       about: "",
-      organizer_user_id: user.id,
       price: 0,
       total_capacity: 100,
       start_time: startISO,
@@ -109,6 +108,10 @@ export default function CreateEventPage() {
       router.push(`/events/${created.id}`);
     } catch (err) {
       if (err instanceof ApiError) {
+        if (err.status === 401) {
+          router.replace(`/signin?next=${encodeURIComponent("/create")}`);
+          return;
+        }
         setError(
           typeof err.detail === "string"
             ? err.detail

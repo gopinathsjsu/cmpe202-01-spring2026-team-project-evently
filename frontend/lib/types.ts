@@ -72,7 +72,6 @@ export interface EventDetail {
 export interface EventCreatePayload {
   title: string;
   about: string;
-  organizer_user_id: number;
   price: number;
   total_capacity: number;
   start_time: string;
