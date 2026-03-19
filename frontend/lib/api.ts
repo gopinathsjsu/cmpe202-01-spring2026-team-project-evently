@@ -42,6 +42,7 @@ export async function apiFetch<T>(
 ): Promise<T> {
   // TODO [auth]: Inject auth headers here when ready.
   const res = await fetch(`${getApiBase()}${path}`, {
+    credentials: init?.credentials ?? "include",
     ...init,
     headers: {
       "Content-Type": "application/json",

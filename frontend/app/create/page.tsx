@@ -24,10 +24,7 @@ function toISO(date: string, time: string): string {
 
 export default function CreateEventPage() {
   const router = useRouter();
-
-  // TODO [auth]: When real auth is wired up in lib/auth.ts, this hook will
-  // redirect unauthenticated users to the sign-in page automatically.
-  const user = useRequireAuth();
+  const { user, loading: authLoading, error: authError } = useRequireAuth();
 
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<EventCategory>("Other");
@@ -55,6 +52,11 @@ export default function CreateEventPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!user) {
+      setError("You need to sign in before creating an event.");
+      return;
+    }
 
     const startISO = toISO(startDate, startTime);
     const endISO = toISO(endDate, endTime);
