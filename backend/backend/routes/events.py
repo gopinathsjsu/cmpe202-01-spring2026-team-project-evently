@@ -145,6 +145,7 @@ class EventCreate(BaseModel):
             raise ValueError("End time must be after start time")
         return self
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

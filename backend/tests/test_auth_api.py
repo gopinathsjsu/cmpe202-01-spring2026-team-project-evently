@@ -120,9 +120,7 @@ async def test_login_redirects_to_google_and_uses_callback_url() -> None:
     authorize_redirect = AsyncMock(return_value=redirect)
     google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
 
-    with patch.object(
-        auth_routes, "get_google_client", return_value=google_client
-    ):
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
             resp = await client.get("/auth/login")
 
@@ -140,9 +138,7 @@ async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
     authorize_redirect = AsyncMock(return_value="not-a-redirect")
     google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
 
-    with patch.object(
-        auth_routes, "get_google_client", return_value=google_client
-    ):
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
             resp = await client.get("/auth/login")
 
@@ -161,9 +157,7 @@ async def test_callback_stores_userinfo_in_session() -> None:
     authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
     google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
 
-    with patch.object(
-        auth_routes, "get_google_client", return_value=google_client
-    ):
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
             resp = await client.get("/auth/callback")
             session_resp = await client.get("/_test/session")
@@ -185,9 +179,7 @@ async def test_callback_returns_400_when_oauth_fails() -> None:
     )
     google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
 
-    with patch.object(
-        auth_routes, "get_google_client", return_value=google_client
-    ):
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
             resp = await client.get("/auth/callback")
 
@@ -247,7 +239,9 @@ async def test_callback_redirects_back_to_frontend_and_exposes_session_user() ->
         last_name="User",
         email="user@example.com",
     )
-    authorize_redirect = AsyncMock(return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth"))
+    authorize_redirect = AsyncMock(
+        return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+    )
     authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
     google_client = SimpleNamespace(
         authorize_access_token=authorize_access_token,
@@ -320,9 +314,7 @@ async def test_callback_redirects_to_configured_frontend_origin(
         authorize_redirect=authorize_redirect,
     )
 
-    with patch.object(
-        auth_routes, "get_google_client", return_value=google_client
-    ):
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
             await client.get(
                 "http://test/auth/login?next=https://frontend.example.com/create"
@@ -341,9 +333,7 @@ async def test_login_uses_allowed_referer_as_post_auth_redirect() -> None:
     )
     google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
 
-    with patch.object(
-        auth_routes, "get_google_client", return_value=google_client
-    ):
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
             await client.get(
                 "/auth/login",
@@ -370,9 +360,7 @@ async def test_login_rejects_disallowed_next_and_falls_back_to_primary_origin(
     )
     google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
 
-    with patch.object(
-        auth_routes, "get_google_client", return_value=google_client
-    ):
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
             await client.get("/auth/login?next=https://evil.example.com/phish")
             session_resp = await client.get("/_test/session")
