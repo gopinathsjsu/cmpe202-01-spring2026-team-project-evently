@@ -11,6 +11,7 @@ from starlette.responses import RedirectResponse
 
 from backend.api import create_app
 from backend.app_config import build_frontend_settings
+from backend.db import get_db
 from backend.models.user import User
 from backend.routes import auth as auth_routes
 
@@ -66,7 +67,9 @@ def clear_oauth_cache() -> Iterator[None]:
 
 def _make_client() -> tuple[FastAPI, AsyncClient]:
     app = create_app()
-    app.state.db = _FakeDb()
+    fake_db = _FakeDb()
+    app.state.db = fake_db
+    app.dependency_overrides[get_db] = lambda: fake_db
 
     @app.get("/_test/session")
     async def read_session(request: Request) -> dict[str, object | None]:
@@ -93,7 +96,7 @@ def _make_client() -> tuple[FastAPI, AsyncClient]:
             request.session[key] = value
         return await read_session(request)
 
-    transport = ASGITransport(app=app, lifespan="off")
+    transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client
 
