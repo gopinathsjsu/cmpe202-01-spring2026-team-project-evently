@@ -93,7 +93,7 @@ def _make_client() -> tuple[FastAPI, AsyncClient]:
             request.session[key] = value
         return await read_session(request)
 
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(app=app, lifespan="off")
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client
 

@@ -6,9 +6,7 @@ export function getPublicApiBase(): string {
 
 export function getApiBase(): string {
   if (typeof window === "undefined") {
-    return process.env.API_INTERNAL_URL ??
-      getPublicApiBase() ??
-      DEFAULT_API_URL;
+    return process.env.API_INTERNAL_URL ?? getPublicApiBase();
   }
 
   return getPublicApiBase();

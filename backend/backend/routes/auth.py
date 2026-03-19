@@ -294,7 +294,7 @@ async def login(request: Request) -> RedirectResponse:
     """Initiate the OAuth login flow by redirecting to Google's authorization endpoint."""
     google_client = get_google_client()
     request.session[_POST_AUTH_REDIRECT_KEY] = _resolve_redirect_target(request)
-    redir = await google_client.authorize_redirect(request, request.url_for("auth"))
+    redir = await google_client.authorize_redirect(request, str(request.url_for("auth")))
     if not isinstance(redir, RedirectResponse):
         raise HTTPException(
             status_code=500, detail="Failed to create redirect response"
