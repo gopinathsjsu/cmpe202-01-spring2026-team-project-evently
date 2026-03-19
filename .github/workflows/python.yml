@@ -102,6 +102,7 @@ jobs:
         working-directory: backend
         env:
           DATABASE_URL: mongodb://localhost:27017
+          SESSION_SECRET_KEY: FAKE_SECRET_KEY
         run: uv run pytest
 
   ruff-lint:
