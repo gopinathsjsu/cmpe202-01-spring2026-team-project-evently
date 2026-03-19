@@ -7,16 +7,30 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
 from backend.db import get_db
+from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 
 def _make_client(
     db: AsyncDatabase[dict[str, Any]],
+    auth_user: AuthSessionUser | None = None,
 ) -> tuple[Any, AsyncClient]:
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
+    if auth_user is not None:
+        app.dependency_overrides[require_authenticated_user] = lambda: auth_user
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client
+
+
+def _auth_user(user_id: int = 1) -> AuthSessionUser:
+    return AuthSessionUser(
+        id=user_id,
+        email=f"user{user_id}@example.com",
+        first_name="Test",
+        last_name="User",
+        name="Test User",
+    )
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
@@ -48,7 +62,7 @@ async def test_filter_by_category_and_city(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get(
             "/events/", params={"category": "Music", "city": "San Francisco"}
@@ -71,7 +85,7 @@ async def test_filter_is_online_true(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/events/", params={"is_online": "true"})
 
@@ -92,7 +106,7 @@ async def test_filter_is_online_false(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/events/", params={"is_online": "false"})
 
@@ -132,7 +146,7 @@ async def test_combined_price_and_online_filter(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get(
             "/events/", params={"is_online": "true", "price_type": "free"}
@@ -161,7 +175,7 @@ async def test_search_with_regex_chars(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/events/", params={"q": "C++"})
 
@@ -177,7 +191,7 @@ async def test_search_no_match_returns_empty(
     await _clean(db)
     await db["events"].insert_one(event_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/events/", params={"q": "nonexistent_xyz"})
 
@@ -215,7 +229,7 @@ async def test_default_sort_is_start_time_asc(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/events/")
 
@@ -232,7 +246,7 @@ async def test_default_sort_is_start_time_asc(
 async def test_page_size_exceeds_max(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/events/", params={"page_size": 101})
     assert resp.status_code == 422
@@ -242,7 +256,7 @@ async def test_page_size_exceeds_max(
 async def test_page_size_zero(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user(999))
     async with client:
         resp = await client.get("/events/", params={"page_size": 0})
     assert resp.status_code == 422
@@ -262,7 +276,6 @@ async def test_create_event_negative_price(
     payload = {
         "title": "Bad Event",
         "about": "Should fail",
-        "organizer_user_id": 1,
         "price": -10.0,
         "total_capacity": 100,
         "start_time": "2026-08-01T10:00:00",
@@ -279,7 +292,7 @@ async def test_create_event_negative_price(
         },
     }
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=payload)
 
@@ -295,7 +308,6 @@ async def test_create_event_end_before_start(
     payload = {
         "title": "Bad Event",
         "about": "End before start",
-        "organizer_user_id": 1,
         "price": 10.0,
         "total_capacity": 100,
         "start_time": "2026-08-01T18:00:00",
@@ -312,7 +324,7 @@ async def test_create_event_end_before_start(
         },
     }
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=payload)
 
@@ -328,7 +340,6 @@ async def test_create_event_zero_capacity(
     payload = {
         "title": "Zero Cap",
         "about": "Zero capacity",
-        "organizer_user_id": 1,
         "price": 0.0,
         "total_capacity": 0,
         "start_time": "2026-08-01T10:00:00",
@@ -345,7 +356,7 @@ async def test_create_event_zero_capacity(
         },
     }
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=payload)
 
@@ -362,7 +373,6 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "title": "Round-Trip Event",
         "about": "Test full create-then-read cycle",
-        "organizer_user_id": 1,
         "price": 15.0,
         "total_capacity": 300,
         "start_time": "2026-08-01T10:00:00",
@@ -394,7 +404,7 @@ async def test_create_then_get_returns_all_fields(
 
     payload = _valid_payload()
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         create_resp = await client.post("/events/", json=payload)
         assert create_resp.status_code == 201
@@ -406,7 +416,7 @@ async def test_create_then_get_returns_all_fields(
 
     assert fetched["title"] == payload["title"]
     assert fetched["about"] == payload["about"]
-    assert fetched["organizer_user_id"] == payload["organizer_user_id"]
+    assert fetched["organizer_user_id"] == 1
     assert fetched["price"] == payload["price"]
     assert fetched["total_capacity"] == payload["total_capacity"]
     assert fetched["category"] == payload["category"]
@@ -426,7 +436,7 @@ async def test_created_event_appears_in_listing(
     """A newly created event must be returned by the list endpoint."""
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         await client.post("/events/", json=_valid_payload(title="Listed Event"))
 
@@ -443,7 +453,7 @@ async def test_create_online_event(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/events/", json=_valid_payload(is_online=True, title="Webinar")
@@ -467,7 +477,7 @@ async def test_create_event_with_schedule(
         {"start_time": "2026-08-01T14:00:00", "description": "Workshop"},
     ]
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=_valid_payload(schedule=sched))
 
@@ -485,7 +495,7 @@ async def test_create_event_with_image_url(
     await _clean(db)
 
     url = "https://example.com/banner.jpg"
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=_valid_payload(image_url=url))
 
@@ -509,7 +519,7 @@ async def test_create_event_with_venue_name(
         "zip_code": "95112",
     }
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=_valid_payload(location=location))
 
@@ -523,7 +533,7 @@ async def test_create_free_event(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=_valid_payload(price=0.0))
 
@@ -553,7 +563,7 @@ async def test_create_event_all_categories(
         "Other",
     ]
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         for cat in categories:
             resp = await client.post(
@@ -572,7 +582,7 @@ async def test_create_event_invalid_category(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/events/", json=_valid_payload(category="NotACategory")
@@ -589,7 +599,7 @@ async def test_create_event_missing_location_fields(
 
     bad_location = {"longitude": -122.0, "latitude": 37.0}
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=_valid_payload(location=bad_location))
 
@@ -603,7 +613,7 @@ async def test_create_event_equal_start_end_time(
     """start_time == end_time should be rejected (end must be *after* start)."""
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/events/",
@@ -623,7 +633,7 @@ async def test_create_event_persists_to_database(
     """Verify the document written to MongoDB matches the payload."""
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/events/",
@@ -647,7 +657,7 @@ async def test_create_multiple_events_sequential_ids(
     """Creating three events should yield IDs 1, 2, 3."""
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     ids = []
     async with client:
         for i in range(1, 4):
@@ -673,11 +683,9 @@ async def test_unfavorite_when_not_favorited(
     await _clean(db)
     await db["events"].insert_one(event_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user(999))
     async with client:
-        resp = await client.request(
-            "DELETE", "/events/1/favorites", json={"user_id": 999}
-        )
+        resp = await client.request("DELETE", "/events/1/favorites")
     assert resp.status_code == 200
     assert resp.json()["status"] == "unfavorited"
 

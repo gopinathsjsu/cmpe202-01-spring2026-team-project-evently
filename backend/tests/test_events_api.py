@@ -7,17 +7,31 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
 from backend.db import get_db
+from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 
 def _make_client(
     db: AsyncDatabase[dict[str, Any]],
+    auth_user: AuthSessionUser | None = None,
 ) -> tuple[Any, AsyncClient]:
     """Build an app with the DB dependency overridden."""
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
+    if auth_user is not None:
+        app.dependency_overrides[require_authenticated_user] = lambda: auth_user
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client
+
+
+def _auth_user(user_id: int = 1) -> AuthSessionUser:
+    return AuthSessionUser(
+        id=user_id,
+        email=f"user{user_id}@example.com",
+        first_name="Test",
+        last_name="User",
+        name="Test User",
+    )
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
@@ -446,7 +460,6 @@ async def test_create_event(
     payload = {
         "title": "New Event",
         "about": "A brand new event",
-        "organizer_user_id": 1,
         "price": 25.0,
         "total_capacity": 200,
         "start_time": "2026-08-01T10:00:00",
@@ -464,7 +477,7 @@ async def test_create_event(
         },
     }
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=payload)
 
@@ -478,6 +491,7 @@ async def test_create_event(
     stored = await db["events"].find_one({"id": 1})
     assert stored is not None
     assert stored["title"] == "New Event"
+    assert stored["organizer_user_id"] == 1
 
 
 @pytest.mark.asyncio
@@ -490,7 +504,6 @@ async def test_create_event_auto_increments_id(
     payload = {
         "title": "Second Event",
         "about": "Another event",
-        "organizer_user_id": 1,
         "price": 0.0,
         "total_capacity": 50,
         "start_time": "2026-09-01T10:00:00",
@@ -507,7 +520,7 @@ async def test_create_event_auto_increments_id(
         },
     }
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json=payload)
 
@@ -519,10 +532,45 @@ async def test_create_event_auto_increments_id(
 async def test_create_event_validation_error(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/", json={"title": "incomplete"})
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_create_event_requires_authentication(
+    db: AsyncDatabase[dict[str, Any]],
+) -> None:
+    await _clean(db)
+
+    _, client = _make_client(db)
+    async with client:
+        resp = await client.post(
+            "/events/",
+            json={
+                "title": "New Event",
+                "about": "A brand new event",
+                "price": 25.0,
+                "total_capacity": 200,
+                "start_time": "2026-08-01T10:00:00",
+                "end_time": "2026-08-01T18:00:00",
+                "category": "Workshop",
+                "is_online": False,
+                "schedule": [],
+                "location": {
+                    "longitude": -122.4194,
+                    "latitude": 37.7749,
+                    "address": "123 Main St",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "zip_code": "94102",
+                },
+            },
+        )
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Authentication required"
 
 
 # -----------------------------------------------------------------------
@@ -537,20 +585,18 @@ async def test_add_and_remove_favorite(
     await _clean(db)
     await db["events"].insert_one(event_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user(42))
     async with client:
-        resp = await client.post("/events/1/favorites", json={"user_id": 42})
+        resp = await client.post("/events/1/favorites")
     assert resp.status_code == 201
     assert resp.json()["status"] == "favorited"
 
     count = await db["event_favorites"].count_documents({"event_id": 1, "user_id": 42})
     assert count == 1
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user(42))
     async with client:
-        resp = await client.request(
-            "DELETE", "/events/1/favorites", json={"user_id": 42}
-        )
+        resp = await client.request("DELETE", "/events/1/favorites")
     assert resp.status_code == 200
     assert resp.json()["status"] == "unfavorited"
 
@@ -565,10 +611,10 @@ async def test_favorite_idempotent(
     await _clean(db)
     await db["events"].insert_one(event_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
-        await client.post("/events/1/favorites", json={"user_id": 1})
-        await client.post("/events/1/favorites", json={"user_id": 1})
+        await client.post("/events/1/favorites")
+        await client.post("/events/1/favorites")
 
     count = await db["event_favorites"].count_documents({"event_id": 1, "user_id": 1})
     assert count == 1
@@ -580,9 +626,9 @@ async def test_favorite_nonexistent_event(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
-        resp = await client.post("/events/9999/favorites", json={"user_id": 1})
+        resp = await client.post("/events/9999/favorites")
     assert resp.status_code == 404
 
 
@@ -592,9 +638,22 @@ async def test_unfavorite_nonexistent_event(
 ) -> None:
     await _clean(db)
 
+    _, client = _make_client(db, auth_user=_auth_user())
+    async with client:
+        resp = await client.request("DELETE", "/events/9999/favorites")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_favorite_requires_authentication(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
     _, client = _make_client(db)
     async with client:
-        resp = await client.request(
-            "DELETE", "/events/9999/favorites", json={"user_id": 1}
-        )
-    assert resp.status_code == 404
+        resp = await client.post("/events/1/favorites")
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Authentication required"

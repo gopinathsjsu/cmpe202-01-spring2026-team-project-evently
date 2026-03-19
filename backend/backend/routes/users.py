@@ -11,10 +11,12 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.db import get_db
 from backend.models.user import GlobalRole, User, UserProfile
+from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 router = APIRouter()
 
 DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
+AuthUserDep = Annotated[AuthSessionUser, Depends(require_authenticated_user)]
 
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/gif"}
@@ -138,6 +140,13 @@ async def _build_user_detail(
     )
 
 
+def _ensure_same_user(current_user: AuthSessionUser, user_id: int) -> None:
+    if current_user.id != user_id:
+        raise HTTPException(
+            status_code=403, detail="You can only modify your own user."
+        )
+
+
 # ---------------------------------------------------------------------------
 # GET /users/{user_id}
 # ---------------------------------------------------------------------------
@@ -156,8 +165,11 @@ async def get_user(db: DbDep, user_id: int) -> UserDetail:
 
 
 @router.patch("/{user_id}", response_model=UserDetail)
-async def update_user(db: DbDep, user_id: int, body: UserProfileUpdate) -> UserDetail:
+async def update_user(
+    db: DbDep, user_id: int, body: UserProfileUpdate, current_user: AuthUserDep
+) -> UserDetail:
     """Update a user's profile information."""
+    _ensure_same_user(current_user, user_id)
     await _get_user_or_404(db, user_id)
 
     updates: dict[str, Any] = {}
@@ -182,8 +194,11 @@ async def update_user(db: DbDep, user_id: int, body: UserProfileUpdate) -> UserD
 
 
 @router.post("/{user_id}/photo", response_model=PhotoResponse, status_code=200)
-async def upload_photo(db: DbDep, user_id: int, file: UploadFile) -> PhotoResponse:
+async def upload_photo(
+    db: DbDep, user_id: int, file: UploadFile, current_user: AuthUserDep
+) -> PhotoResponse:
     """Upload or replace a user's profile photo."""
+    _ensure_same_user(current_user, user_id)
     user = await _get_user_or_404(db, user_id)
 
     if file.content_type not in ALLOWED_PHOTO_TYPES:
@@ -231,8 +246,9 @@ async def upload_photo(db: DbDep, user_id: int, file: UploadFile) -> PhotoRespon
 
 
 @router.delete("/{user_id}/photo", status_code=204)
-async def delete_photo(db: DbDep, user_id: int) -> None:
+async def delete_photo(db: DbDep, user_id: int, current_user: AuthUserDep) -> None:
     """Remove a user's profile photo."""
+    _ensure_same_user(current_user, user_id)
     user = await _get_user_or_404(db, user_id)
 
     if user.profile_photo_url:
