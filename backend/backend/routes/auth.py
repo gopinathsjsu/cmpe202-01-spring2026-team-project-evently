@@ -212,9 +212,7 @@ async def _resolve_or_create_local_user(
     return user
 
 
-async def _sync_user_roles(
-    db: AsyncDatabase[dict[str, Any]], user: User
-) -> User:
+async def _sync_user_roles(db: AsyncDatabase[dict[str, Any]], user: User) -> User:
     expected_roles = _roles_for_email(user.email)
     if user.roles == expected_roles:
         return user
