@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 
 export function AuthNav() {
   const { user, loading } = useAuth();
+  const isAdmin = user?.roles.includes("admin") ?? false;
 
   if (loading) {
     return (
@@ -16,6 +17,14 @@ export function AuthNav() {
   if (user) {
     return (
       <div className="flex items-center gap-4">
+        {isAdmin && (
+          <a
+            href="/admin/events"
+            className="rounded-md border border-black px-4 py-2 text-sm font-medium text-black hover:bg-gray-50"
+          >
+            Admin Queue
+          </a>
+        )}
         <span className="hidden text-sm text-gray-700 sm:inline">
           {user.first_name || user.name}
         </span>

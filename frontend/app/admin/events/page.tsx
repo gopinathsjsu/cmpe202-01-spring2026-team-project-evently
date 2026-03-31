@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import Navbar from "@/app/components/navbar";
 import { ApiError, apiFetch } from "@/lib/api";
-import { getCurrentUser } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import type { EventCategory, PendingEventListItem } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -277,10 +278,10 @@ interface EventActionState {
 }
 
 export default function AdminPendingEventsPage() {
-  // TODO [auth]: Replace with a real admin role check once auth is wired up.
-  // For now getCurrentUser() always returns a guest user, so the page is
-  // accessible to everyone. Once roles are real, redirect non-admins here.
-  const user = getCurrentUser();
+  const pathname = usePathname();
+  const { user, loading: authLoading } = useAuth();
+  const isAdmin = user?.roles.includes("admin") ?? false;
+  const signinHref = pathname ? `/signin?next=${encodeURIComponent(pathname)}` : "/signin";
 
   const [events, setEvents] = useState<PendingEventListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -303,8 +304,12 @@ export default function AdminPendingEventsPage() {
   }, []);
 
   useEffect(() => {
+    if (authLoading || !isAdmin) {
+      return;
+    }
+
     loadPendingEvents();
-  }, [loadPendingEvents]);
+  }, [authLoading, isAdmin, loadPendingEvents]);
 
   function setActionState(id: number, state: Partial<EventActionState>) {
     setActionStates((prev) => {
@@ -359,19 +364,35 @@ export default function AdminPendingEventsPage() {
   // ---------------------------------------------------------------------------
   // Access guard
   // ---------------------------------------------------------------------------
-  if (!user) {
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="rounded-lg border border-gray-200 bg-white p-10 text-center shadow-sm">
+          <ShieldCheckIcon className="mx-auto h-12 w-12 animate-pulse text-gray-400" />
+          <h2 className="mt-4 text-lg font-semibold text-gray-900">Checking access</h2>
+          <p className="mt-2 text-sm text-gray-600">Verifying your administrator permissions.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || !isAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="rounded-lg border border-gray-200 bg-white p-10 text-center shadow-sm">
           <ShieldCheckIcon className="mx-auto h-12 w-12 text-gray-400" />
           <h2 className="mt-4 text-lg font-semibold text-gray-900">Access Denied</h2>
           <p className="mt-2 text-sm text-gray-600">You must be signed in as an administrator to view this page.</p>
-          <a
-            href="/signin"
-            className="mt-6 inline-block rounded-md bg-black px-5 py-2 text-sm font-medium text-white hover:bg-gray-800"
-          >
-            Sign In
-          </a>
+          {!user ? (
+            <a
+              href={signinHref}
+              className="mt-6 inline-block rounded-md bg-black px-5 py-2 text-sm font-medium text-white hover:bg-gray-800"
+            >
+              Sign In
+            </a>
+          ) : (
+            <p className="mt-4 text-sm text-gray-500">Signed in as {user.email}</p>
+          )}
         </div>
       </div>
     );
