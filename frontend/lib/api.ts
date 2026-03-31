@@ -1,3 +1,5 @@
+import { getApiBase } from "@/lib/api-base";
+
 // ==========================================================================
 // API CLIENT — Single entry point for all backend requests.
 //
@@ -7,8 +9,6 @@
 //   const token = getSessionToken();
 //   if (token) headers["Authorization"] = `Bearer ${token}`;
 // ==========================================================================
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 /**
  * Structured error thrown when the backend returns a non-2xx response.
@@ -41,7 +41,8 @@ export async function apiFetch<T>(
   init?: RequestInit,
 ): Promise<T> {
   // TODO [auth]: Inject auth headers here when ready.
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${getApiBase()}${path}`, {
+    credentials: init?.credentials ?? "include",
     ...init,
     headers: {
       "Content-Type": "application/json",

@@ -17,7 +17,7 @@ The backend requires the following environment variables to be set:
 1. Copy `.env.example` to `.env` with `cp .env.example .env`
 2. Edit `.env` with your desired credentials
 
-> The justfile auto-loads `.env` via `set dotenv-load` — no need to manually `source .env`.
+> Both `just` and Docker Compose read `.env` directly. No manual `source .env` step is needed.
 
 ### Required External Tools
 
