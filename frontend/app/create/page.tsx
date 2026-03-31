@@ -14,8 +14,18 @@ import type {
 } from "@/lib/types";
 
 const CATEGORIES: EventCategory[] = [
-  "Music", "Business", "Arts", "Food", "Sports", "Education",
-  "Theater", "Comedy", "Festival", "Conference", "Workshop", "Other",
+  "Music",
+  "Business",
+  "Arts",
+  "Food",
+  "Sports",
+  "Education",
+  "Theater",
+  "Comedy",
+  "Festival",
+  "Conference",
+  "Workshop",
+  "Other",
 ];
 
 function toISO(date: string, time: string): string {
@@ -299,7 +309,10 @@ export default function CreateEventPage() {
             >
               {submitting ? "Publishing…" : "Publish Event"}
             </button>
-            <a href="/" className="text-sm font-medium text-gray-600 hover:text-black">
+            <a
+              href="/"
+              className="text-sm font-medium text-gray-600 hover:text-black"
+            >
               Cancel
             </a>
           </div>

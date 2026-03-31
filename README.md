@@ -72,6 +72,19 @@ just frontend
 
 Run `just` with no arguments to see all available commands.
 
+## Admin Access
+
+Admin access is controlled by the `ADMIN_EMAILS` setting in `backend/.env`.
+Add a comma-separated list of Google sign-in emails:
+
+```env
+ADMIN_EMAILS="admin1@example.com,admin2@example.com"
+```
+
+Any signed-in user whose email matches one of those addresses is given the `admin` role automatically.
+
+When an admin signs in, the navigation shows an `Admin Queue` button that links to the pending event approval page at `/admin/events`.
+
 ## Architecture
 
 Below is the architecture diagram for the Evently system:

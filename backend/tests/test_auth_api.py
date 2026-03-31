@@ -49,6 +49,16 @@ class _FakeCollection:
     async def insert_one(self, doc: dict[str, object]) -> None:
         self._docs.append(doc)
 
+    async def update_one(
+        self, query: dict[str, object], update: dict[str, dict[str, object]]
+    ) -> None:
+        doc = await self.find_one(query)
+        if doc is None:
+            return
+
+        for key, value in update.get("$set", {}).items():
+            doc[key] = value
+
 
 class _FakeDb:
     def __init__(self) -> None:
@@ -280,6 +290,7 @@ async def test_callback_redirects_back_to_frontend_and_exposes_session_user() ->
             "first_name": "Test",
             "last_name": "User",
             "name": "Test User",
+            "roles": ["user"],
             "picture": "https://example.com/avatar.png",
         }
     }
@@ -415,6 +426,7 @@ async def test_auth_session_uses_existing_local_user_without_recreating() -> Non
             "first_name": "Test",
             "last_name": "User",
             "name": "Test User",
+            "roles": ["user"],
             "picture": "https://example.com/oauth.png",
         }
     }
@@ -460,6 +472,7 @@ async def test_auth_session_creates_local_user_from_oauth_session() -> None:
             "first_name": "Test",
             "last_name": "User",
             "name": "Test User",
+            "roles": ["user"],
             "picture": "https://example.com/oauth.png",
         }
     }
@@ -488,3 +501,67 @@ async def test_resolve_or_create_local_user_stores_roles_as_list() -> None:
     assert user is not None
     assert stored is not None
     assert stored["roles"] == ["user"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_or_create_local_user_assigns_admin_role_from_admin_emails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com, other@example.com")
+    db = _FakeDb()
+
+    user = await auth_routes._resolve_or_create_local_user(
+        cast(Any, db),
+        {
+            "email": "Admin@Example.com",
+            "given_name": "Admin",
+            "family_name": "User",
+        },
+    )
+
+    stored = await db["users"].find_one()
+
+    assert user is not None
+    assert stored is not None
+    assert sorted(role.value for role in user.roles) == ["admin", "user"]
+    assert stored["roles"] == ["admin", "user"]
+
+
+@pytest.mark.asyncio
+async def test_auth_session_updates_existing_user_roles_from_admin_email_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+    app, client = _make_client()
+    stored_user = User(
+        id=7,
+        username="adminuser",
+        first_name="Admin",
+        last_name="User",
+        email="admin@example.com",
+    )
+    await app.state.db["users"].insert_one(stored_user.model_dump(mode="json"))
+
+    async with client:
+        await client.post(
+            "/_test/session",
+            json={auth_routes._EVENTLY_USER_SESSION_KEY: 7},
+        )
+        resp = await client.get("/auth/session")
+
+    updated = await app.state.db["users"].find_one({"id": 7})
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "user": {
+            "id": 7,
+            "email": "admin@example.com",
+            "first_name": "Admin",
+            "last_name": "User",
+            "name": "Admin User",
+            "roles": ["admin", "user"],
+            "picture": None,
+        }
+    }
+    assert updated is not None
+    assert updated["roles"] == ["admin", "user"]

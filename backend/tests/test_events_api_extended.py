@@ -30,6 +30,7 @@ def _auth_user(user_id: int = 1) -> AuthSessionUser:
         first_name="Test",
         last_name="User",
         name="Test User",
+        roles=["user"],
     )
 
 

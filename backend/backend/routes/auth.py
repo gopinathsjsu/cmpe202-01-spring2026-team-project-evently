@@ -18,7 +18,7 @@ from starlette.responses import RedirectResponse
 
 from backend.app_config import get_frontend_settings
 from backend.db import get_db
-from backend.models.user import User
+from backend.models.user import GlobalRole, User
 
 CONF_URL = "https://accounts.google.com/.well-known/openid-configuration"
 
@@ -40,6 +40,7 @@ class AuthSessionUser(BaseModel):
     first_name: str
     last_name: str
     name: str
+    roles: list[str]
     picture: str | None = None
 
 
@@ -114,6 +115,33 @@ def _string_value(value: object) -> str | None:
     return None
 
 
+def _normalized_email(value: str) -> str:
+    return value.strip().lower()
+
+
+def _configured_admin_emails() -> set[str]:
+    raw_value = getenv("ADMIN_EMAILS", "")
+    if not raw_value:
+        return set()
+
+    return {
+        normalized
+        for part in re.split(r"[\s,;]+", raw_value)
+        if (normalized := _normalized_email(part))
+    }
+
+
+def _roles_for_email(email: str) -> set[GlobalRole]:
+    roles = {GlobalRole.User}
+    if _normalized_email(email) in _configured_admin_emails():
+        roles.add(GlobalRole.Admin)
+    return roles
+
+
+def _serialized_roles(roles: set[GlobalRole]) -> list[str]:
+    return [role.value for role in sorted(roles, key=lambda role: role.value)]
+
+
 def _derive_names(userinfo: Mapping[str, object], email: str) -> tuple[str, str]:
     first_name = _string_value(userinfo.get("given_name"))
     last_name = _string_value(userinfo.get("family_name"))
@@ -162,7 +190,7 @@ async def _resolve_or_create_local_user(
 
     existing = await db["users"].find_one({"email": email})
     if existing is not None:
-        return User(**existing)
+        return await _sync_user_roles(db, User(**existing))
 
     first_name, last_name = _derive_names(userinfo, email)
     username = await _unique_username(db, _base_username(userinfo, email))
@@ -172,10 +200,28 @@ async def _resolve_or_create_local_user(
         first_name=first_name,
         last_name=last_name,
         email=email,
+        roles=_roles_for_email(email),
         profile_photo_url=_string_value(userinfo.get("picture")),
     )
-    await db["users"].insert_one(user.model_dump(mode="json"))
+    await db["users"].insert_one(
+        {
+            **user.model_dump(mode="json"),
+            "roles": _serialized_roles(user.roles),
+        }
+    )
     return user
+
+
+async def _sync_user_roles(db: AsyncDatabase[dict[str, Any]], user: User) -> User:
+    expected_roles = _roles_for_email(user.email)
+    if user.roles == expected_roles:
+        return user
+
+    await db["users"].update_one(
+        {"id": user.id},
+        {"$set": {"roles": _serialized_roles(expected_roles)}},
+    )
+    return user.model_copy(update={"roles": expected_roles})
 
 
 async def _get_authenticated_user(
@@ -185,7 +231,7 @@ async def _get_authenticated_user(
     if isinstance(local_user_id, int):
         existing = await db["users"].find_one({"id": local_user_id})
         if existing is not None:
-            user = User(**existing)
+            user = await _sync_user_roles(db, User(**existing))
             oauth_user = request.session.get(_OAUTH_USER_SESSION_KEY)
             picture = None
             if is_google_userinfo(oauth_user):
@@ -199,6 +245,7 @@ async def _get_authenticated_user(
                 first_name=user.first_name,
                 last_name=user.last_name,
                 name=full_name or user.username,
+                roles=_serialized_roles(user.roles),
                 picture=picture or user.profile_photo_url,
             )
 
@@ -221,6 +268,7 @@ async def _get_authenticated_user(
         first_name=local_user.first_name,
         last_name=local_user.last_name,
         name=full_name or local_user.username,
+        roles=_serialized_roles(local_user.roles),
         picture=_string_value(oauth_user.get("picture"))
         or local_user.profile_photo_url,
     )

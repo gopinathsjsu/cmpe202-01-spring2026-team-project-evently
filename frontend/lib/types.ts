@@ -69,6 +69,23 @@ export interface EventDetail {
   favorites_count: number;
 }
 
+export type EventStatus = "pending" | "approved" | "rejected";
+
+export interface PendingEventListItem {
+  id: number;
+  title: string;
+  category: EventCategory;
+  start_time: string;
+  end_time: string;
+  price: number;
+  is_online: boolean;
+  location: { venue_name: string | null; city: string; state: string };
+  organizer_user_id: number;
+  total_capacity: number;
+  about: string;
+  status: EventStatus;
+}
+
 export interface EventCreatePayload {
   title: string;
   about: string;
