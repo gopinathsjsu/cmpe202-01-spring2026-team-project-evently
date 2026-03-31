@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { AuthNav } from "@/components/auth-nav";
 import { getApiBase } from "@/lib/api-base";
 
 // ---------------------------------------------------------------------------
@@ -340,10 +341,7 @@ export default function HelpPage() {
               />
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <a href="/signin" className="text-sm font-medium text-gray-700 hover:text-black">Sign In</a>
-            <a href="/signup" className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">Sign Up</a>
-          </div>
+          <AuthNav />
         </div>
       </header>
 

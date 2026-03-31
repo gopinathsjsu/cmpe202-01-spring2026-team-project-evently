@@ -8,16 +8,30 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
 from backend.db import get_db
+from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 
 def _make_client(
     db: AsyncDatabase[dict[str, Any]],
+    auth_user: AuthSessionUser | None = None,
 ) -> tuple[Any, AsyncClient]:
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
+    if auth_user is not None:
+        app.dependency_overrides[require_authenticated_user] = lambda: auth_user
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client
+
+
+def _auth_user(user_id: int = 1) -> AuthSessionUser:
+    return AuthSessionUser(
+        id=user_id,
+        email=f"user{user_id}@example.com",
+        first_name="Test",
+        last_name="User",
+        name="Test User",
+    )
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
@@ -37,7 +51,7 @@ async def test_update_user_invalid_email(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.patch("/users/1", json={"email": "not-an-email"})
 
@@ -52,7 +66,7 @@ async def test_update_user_empty_body(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.patch("/users/1", json={})
 
@@ -69,7 +83,7 @@ async def test_update_user_email(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.patch("/users/1", json={"email": "new@example.com"})
 
@@ -95,7 +109,7 @@ async def test_update_user_all_profile_fields(
         "interests": ["AI", "Cooking"],
     }
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.patch("/users/1", json=payload)
 
@@ -126,7 +140,7 @@ async def test_upload_photo_too_large(
     large_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * (6 * 1024 * 1024)
     big_file = BytesIO(large_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/users/1/photo",
@@ -147,7 +161,7 @@ async def test_upload_photo_invalid_extension(
 
     fake_image = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/users/1/photo",
@@ -168,7 +182,7 @@ async def test_upload_photo_replaces_old(
     img1 = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
     img2 = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 200)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp1 = await client.post(
             "/users/1/photo",
@@ -197,7 +211,7 @@ async def test_upload_photo_jpeg(
 
     fake_jpeg = BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post(
             "/users/1/photo",
@@ -221,7 +235,7 @@ async def test_delete_photo_when_none_exists(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.delete("/users/1/photo")
 
