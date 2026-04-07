@@ -299,7 +299,12 @@ export default function CalendarPage() {
                     <div className="mt-4 space-y-4">
                       {upcomingEvents.map((item) => (
                         <div key={`${item.event_id}-${item.action}-${item.date}`} className="border-l-2 border-gray-900 pl-3">
-                          <p className="text-sm font-semibold text-gray-900">{item.event_title}</p>
+                          <Link
+                            href={`/events/${item.event_id}`}
+                            className="text-sm font-semibold text-gray-900 transition hover:text-gray-600"
+                          >
+                            {item.event_title}
+                          </Link>
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-gray-500">
                             {actionLabel(item.action)}
                           </p>
@@ -401,9 +406,8 @@ export default function CalendarPage() {
                         const isToday = dateKey(day) === dateKey(new Date());
 
                         return (
-                          <button
+                          <div
                             key={`${day.toISOString()}-${index}`}
-                            type="button"
                             className={`min-h-32 border-r border-b border-gray-200 px-3 py-3 text-left align-top transition hover:bg-gray-50 ${index % 7 === 6 ? "border-r-0" : ""}`}
                           >
                             <div className="flex items-center justify-between">
@@ -425,12 +429,13 @@ export default function CalendarPage() {
 
                             <div className="mt-3 space-y-2">
                               {items.slice(0, 2).map((item) => (
-                                <div
+                                <Link
                                   key={`${item.event_id}-${item.action}-${item.date}`}
+                                  href={`/events/${item.event_id}`}
                                   className={`truncate rounded-lg px-2.5 py-1.5 text-xs font-medium ${actionClasses(item.action)}`}
                                 >
                                   {item.event_title}
-                                </div>
+                                </Link>
                               ))}
                               {items.length > 2 ? (
                                 <div className="text-xs font-medium text-gray-500">
@@ -438,7 +443,7 @@ export default function CalendarPage() {
                                 </div>
                               ) : null}
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -453,8 +458,9 @@ export default function CalendarPage() {
                 {selectedMonthItems.length > 0 ? (
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     {selectedMonthItems.slice(0, 6).map((item) => (
-                      <div
+                      <Link
                         key={`${item.event_id}-${item.action}-${item.date}-summary`}
+                        href={`/events/${item.event_id}`}
                         className="rounded-2xl border border-gray-200 bg-[#faf8f3] p-4"
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -466,7 +472,7 @@ export default function CalendarPage() {
                           </span>
                         </div>
                         <p className="mt-3 text-sm text-gray-500">{formatEventTime(item.date)}</p>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 ) : (
