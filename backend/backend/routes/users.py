@@ -310,6 +310,9 @@ async def get_user_activity(
             events_by_id[ev["id"]] = ev
 
     for raw_att in attendance_records:
+        if raw_att["status"] == "cancelled":
+            continue
+
         event_raw = events_by_id.get(raw_att["event_id"])
         if event_raw is None:
             continue

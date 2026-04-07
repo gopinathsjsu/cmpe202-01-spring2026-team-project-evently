@@ -407,3 +407,31 @@ async def test_activity_orphaned_attendance_skipped(
 
     assert resp.status_code == 200
     assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_activity_cancelled_attendance_skipped(
+    db: AsyncDatabase[dict[str, Any]],
+    user_data: dict[str, Any],
+    event_data: dict[str, Any],
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+    await db["events"].insert_one(
+        {**event_data, "id": 1, "organizer_user_id": 2, "title": "Cancelled Event"}
+    )
+    await db["attendance"].insert_one(
+        {
+            "event_id": 1,
+            "user_id": 1,
+            "status": "cancelled",
+            "checked_in_at": None,
+        }
+    )
+
+    _, client = _make_client(db)
+    async with client:
+        resp = await client.get("/users/1/activity")
+
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []

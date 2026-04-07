@@ -7,6 +7,8 @@ import { useAuth } from "@/lib/auth";
 
 interface RegistrationCardProps {
   eventId: number;
+  addToCalendarUrl: string;
+  organizerUserId: number;
   price: number;
   spotsLeft: number;
 }
@@ -24,6 +26,8 @@ function formatPrice(price: number): string {
 
 export function RegistrationCard({
   eventId,
+  addToCalendarUrl,
+  organizerUserId,
   price,
   spotsLeft,
 }: RegistrationCardProps) {
@@ -102,6 +106,8 @@ export function RegistrationCard({
   }
 
   const isRegistered = status === "going";
+  const isOrganizer = user?.id === organizerUserId;
+  const isOnCalendar = isOrganizer || status === "going" || status === "checked_in";
 
   return (
     <>
@@ -137,7 +143,7 @@ export function RegistrationCard({
         <>
           <div className="mt-5 flex items-center justify-between border-t border-zinc-200 pt-5 dark:border-zinc-700">
             <span className="text-sm text-zinc-500">Price</span>
-            <span className="text-xl font-bold">{formatPrice(price)}</span>
+            <span className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{formatPrice(price)}</span>
           </div>
 
           <button
@@ -149,6 +155,23 @@ export function RegistrationCard({
           </button>
         </>
       )}
+
+      {!isOnCalendar ? (
+        <a
+          href={addToCalendarUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-zinc-200 py-3 text-sm font-semibold transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+        >
+          <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth={2}>
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+          Add to Calendar
+        </a>
+      ) : null}
     </>
   );
 }
