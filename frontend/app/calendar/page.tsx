@@ -121,6 +121,18 @@ function addMonths(date: Date, amount: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + amount, 1);
 }
 
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function toIcsDate(dateString: string): string {
+  return new Date(dateString).toISOString().replace(/[-:]|\.\d{3}/g, "");
+}
+
 export default function CalendarPage() {
   const { user, loading: authLoading, error: authError } = useRequireAuth();
   const [activeView, setActiveView] = useState<CalendarView>("Month");
@@ -222,6 +234,69 @@ export default function CalendarPage() {
     [displayMonth, normalizedActivity],
   );
 
+  const exportableEvents = useMemo(() => {
+    const seen = new Set<string>();
+
+    return normalizedActivity.filter((item) => {
+      if (new Date(item.date).getTime() < calendarLoadedAt) {
+        return false;
+      }
+
+      const key = `${item.event_id}-${item.date}`;
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+  }, [calendarLoadedAt, normalizedActivity]);
+
+  function handleGoogleCalendarExport() {
+    if (exportableEvents.length === 0) {
+      return;
+    }
+
+    const lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Evently//Personal Planner//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      ...exportableEvents.flatMap((item) => {
+        const start = new Date(item.date);
+        const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+
+        return [
+          "BEGIN:VEVENT",
+          `UID:evently-${item.event_id}-${start.getTime()}@evently.local`,
+          `DTSTAMP:${toIcsDate(new Date().toISOString())}`,
+          `DTSTART:${toIcsDate(item.date)}`,
+          `DTEND:${toIcsDate(end.toISOString())}`,
+          `SUMMARY:${escapeIcsText(item.event_title)}`,
+          `DESCRIPTION:${escapeIcsText(`Imported from Evently Personal Planner (${actionLabel(item.action)})`)}`,
+          `URL:https://evently.local/events/${item.event_id}`,
+          "END:VEVENT",
+        ];
+      }),
+      "END:VCALENDAR",
+    ];
+
+    const file = new Blob([lines.join("\r\n")], {
+      type: "text/calendar;charset=utf-8",
+    });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "evently-personal-planner.ics";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    window.open("https://calendar.google.com/", "_blank", "noopener,noreferrer");
+  }
+
   return (
     <div className="min-h-screen bg-[#f6f4ee] text-black">
       <Navbar />
@@ -249,7 +324,7 @@ export default function CalendarPage() {
                   Track the events you are hosting, planning to attend, and recently joined in one place.
                 </p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Link
                   href="/create"
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:bg-gray-800"
@@ -263,6 +338,15 @@ export default function CalendarPage() {
                 >
                   <UploadIcon className="h-4 w-4" />
                   Import Events
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGoogleCalendarExport}
+                  disabled={exportableEvents.length === 0}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CalendarIcon className="h-4 w-4" />
+                  Add to Google Calendar
                 </button>
               </div>
             </section>
