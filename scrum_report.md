@@ -64,3 +64,18 @@
 - integrating auth with the frontend
 - pending events endpoints and frontend integration
 - study for midterm
+
+## 3/17 - 3/24
+
+- midterm
+
+## 3/24 - 3/31
+
+### Finished
+
+- google oauth2 integration
+- approve pending events as admin page
+
+## 4/1 - 4/6
+
+- spring break
