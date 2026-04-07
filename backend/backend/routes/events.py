@@ -8,6 +8,7 @@ from pymongo import ASCENDING, DESCENDING
 from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.db import get_db
+from backend.models.attendance import AttendanceStatus
 from backend.models.event import Event, EventCategory, EventScheduleEntry, Location
 from backend.models.event_favorite import EventFavorite
 from backend.routes.auth import AuthSessionUser, require_authenticated_user
@@ -105,6 +106,18 @@ class FavoriteRemoveResponse(BaseModel):
     event_id: int
     user_id: int
     status: Literal["unfavorited"] = "unfavorited"
+
+
+class AttendanceStatusResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["going", "checked_in", "cancelled"] | None
+
+
+class AttendanceCancelResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["cancelled"] = "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +338,66 @@ async def get_event(db: DbDep, event_id: int) -> EventDetail:
     return EventDetail.from_event(
         event, attending_count=attending, favorites_count=favorites
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /events/{event_id}/attendance  — Current user's attendance status
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{event_id}/attendance", response_model=AttendanceStatusResponse)
+async def get_my_attendance(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> AttendanceStatusResponse:
+    """Return the authenticated user's attendance status for a given event."""
+    event = await db["events"].find_one({"id": event_id}, {"_id": 1})
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    attendance = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": current_user.id},
+        sort=[("_id", DESCENDING)],
+    )
+
+    return AttendanceStatusResponse(
+        event_id=event_id,
+        user_id=current_user.id,
+        status=attendance["status"] if attendance is not None else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /events/{event_id}/attendance  — Cancel current user's registration
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/{event_id}/attendance", response_model=AttendanceCancelResponse)
+async def cancel_attendance(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> AttendanceCancelResponse:
+    """Cancel the authenticated user's registration for a given event."""
+    event = await db["events"].find_one({"id": event_id}, {"_id": 1})
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    existing = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": current_user.id},
+        sort=[("_id", DESCENDING)],
+    )
+    if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
+        raise HTTPException(status_code=404, detail="Registration not found")
+
+    await db["attendance"].update_many(
+        {"event_id": event_id, "user_id": current_user.id},
+        {
+            "$set": {
+                "status": AttendanceStatus.Cancelled.value,
+                "checked_in_at": None,
+            }
+        },
+    )
+
+    return AttendanceCancelResponse(event_id=event_id, user_id=current_user.id)
 
 
 # ---------------------------------------------------------------------------

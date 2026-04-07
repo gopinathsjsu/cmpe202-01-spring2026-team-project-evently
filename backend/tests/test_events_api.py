@@ -106,6 +106,77 @@ async def test_empty_collection_returns_no_items(
     assert body["items"] == []
 
 
+@pytest.mark.asyncio
+async def test_get_event_attendance_status_for_authenticated_user(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.get("/events/1/attendance")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"event_id": 1, "user_id": 7, "status": "going"}
+
+
+@pytest.mark.asyncio
+async def test_get_event_attendance_status_returns_none_when_missing(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.get("/events/1/attendance")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"event_id": 1, "user_id": 7, "status": None}
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_attendance_marks_registration_cancelled(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.delete("/events/1/attendance")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"event_id": 1, "user_id": 7, "status": "cancelled"}
+
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "cancelled"
+    assert saved["checked_in_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_attendance_returns_404_when_missing(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.delete("/events/1/attendance")
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Registration not found"
+
+
 # -----------------------------------------------------------------------
 # Search
 # -----------------------------------------------------------------------

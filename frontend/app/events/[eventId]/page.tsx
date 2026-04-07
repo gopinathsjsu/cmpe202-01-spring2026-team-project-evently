@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
 import type { EventDetail, UserDetail } from "@/lib/types";
+import { RegistrationCard } from "./registration-card";
 import { ShareButtons } from "./share-buttons";
 
 // ---------------------------------------------------------------------------
@@ -22,11 +23,6 @@ function formatTime(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function formatPrice(price: number): string {
-  if (price === 0) return "Free";
-  return `$${price.toFixed(2)}`;
 }
 
 function buildGoogleCalendarUrl(event: EventDetail): string {
@@ -242,20 +238,11 @@ export default async function EventDetailPage({
                 </div>
               </div>
 
-              {/* Price */}
-              <div className="mt-5 flex items-center justify-between border-t border-zinc-200 pt-5 dark:border-zinc-700">
-                <span className="text-sm text-zinc-500">Price</span>
-                <span className="text-xl font-bold">{formatPrice(event.price)}</span>
-              </div>
-
-              {/* Register */}
-              <button
-                type="button"
-                disabled={spotsLeft <= 0}
-                className="mt-5 w-full rounded-full bg-black py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-              >
-                {spotsLeft > 0 ? "Register Now" : "Sold Out"}
-              </button>
+              <RegistrationCard
+                eventId={event.id}
+                price={event.price}
+                spotsLeft={spotsLeft}
+              />
 
               {/* Add to Calendar */}
               <a
