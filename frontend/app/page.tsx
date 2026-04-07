@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AuthNav } from "@/components/auth-nav";
+import Navbar from "@/app/components/navbar";
 import { getApiBase } from "@/lib/api-base";
 
 type EventCategory =
@@ -286,34 +286,7 @@ export default function DiscoverPage() {
 
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
-      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-8">
-            <a href="/" className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded bg-black text-white text-sm font-bold">E</span>
-              <span className="text-lg font-semibold">Evently</span>
-            </a>
-            <nav className="hidden items-center gap-6 md:flex">
-              <a href="/discover" className="text-sm font-medium text-black">Browse Events</a>
-              <a href="/create" className="text-sm font-medium text-gray-700 hover:text-black">Create Event</a>
-              <a href="/tickets" className="text-sm font-medium text-gray-700 hover:text-black">My Tickets</a>
-            </nav>
-          </div>
-          <div className="flex flex-1 items-center justify-center max-w-md px-4">
-            <div className="relative w-full">
-              <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                type="search"
-                placeholder="Search events..."
-                className="w-full rounded-md border border-gray-300 bg-gray-50 py-2 pl-9 pr-4 text-sm placeholder:text-gray-500 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-          </div>
-          <AuthNav />
-        </div>
-      </header>
+      <Navbar />
 
       <main>
         <section className="border-b border-gray-200 bg-white py-16 sm:py-20">

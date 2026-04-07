@@ -1,10 +1,31 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  usePathname: vi.fn(),
+}));
+
+vi.mock("@/lib/auth", () => ({
+  useAuth: vi.fn(),
+}));
+
+import { usePathname } from "next/navigation";
+
+import { useAuth } from "@/lib/auth";
 import HelpPage from "./page";
+
+const mockedUsePathname = vi.mocked(usePathname);
+const mockedUseAuth = vi.mocked(useAuth);
 
 describe("HelpPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockedUsePathname.mockReturnValue("/help");
+    mockedUseAuth.mockReturnValue({
+      user: null,
+      loading: false,
+      error: null,
+    });
   });
 
   // -----------------------------------------------------------------------

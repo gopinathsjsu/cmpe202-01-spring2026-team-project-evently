@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { AuthNav } from "@/components/auth-nav";
+import Navbar from "@/app/components/navbar";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import type {
@@ -141,22 +142,7 @@ export default function CreateEventPage() {
 
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-8">
-            <a href="/" className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded bg-black text-white text-sm font-bold">E</span>
-              <span className="text-lg font-semibold">Evently</span>
-            </a>
-            <nav className="hidden items-center gap-6 md:flex">
-              <a href="/" className="text-sm font-medium text-gray-700 hover:text-black">Browse Events</a>
-              <a href="/create" className="text-sm font-medium text-black">Create Event</a>
-            </nav>
-          </div>
-          <AuthNav />
-        </div>
-      </header>
+      <Navbar />
 
       <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
         <h1 className="text-3xl font-bold tracking-tight">Create New Event</h1>
@@ -309,12 +295,12 @@ export default function CreateEventPage() {
             >
               {submitting ? "Publishing…" : "Publish Event"}
             </button>
-            <a
+            <Link
               href="/"
               className="text-sm font-medium text-gray-600 hover:text-black"
             >
               Cancel
-            </a>
+            </Link>
           </div>
         </form>
       </main>
