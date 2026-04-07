@@ -200,6 +200,16 @@ export default function CalendarPage() {
       .slice(0, 5);
   }, [calendarLoadedAt, normalizedActivity]);
 
+  const pastEvents = useMemo(() => {
+    return [...normalizedActivity]
+      .filter((item) => new Date(item.date).getTime() < calendarLoadedAt)
+      .sort(
+        (left, right) =>
+          new Date(right.date).getTime() - new Date(left.date).getTime(),
+      )
+      .slice(0, 6);
+  }, [calendarLoadedAt, normalizedActivity]);
+
   const selectedMonthItems = useMemo(
     () =>
       normalizedActivity.filter((item) => {
@@ -453,33 +463,64 @@ export default function CalendarPage() {
             </section>
 
             <section className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                <h2 className="text-lg font-semibold">This Month</h2>
-                {selectedMonthItems.length > 0 ? (
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                    {selectedMonthItems.slice(0, 6).map((item) => (
-                      <Link
-                        key={`${item.event_id}-${item.action}-${item.date}-summary`}
-                        href={`/events/${item.event_id}`}
-                        className="rounded-2xl border border-gray-200 bg-[#faf8f3] p-4"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-semibold text-gray-900">
-                            {item.event_title}
-                          </p>
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${actionClasses(item.action)}`}>
-                            {actionLabel(item.action)}
-                          </span>
-                        </div>
-                        <p className="mt-3 text-sm text-gray-500">{formatEventTime(item.date)}</p>
-                      </Link>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-4 text-sm text-gray-500">
-                    No events are scheduled for this month yet.
-                  </p>
-                )}
+              <div className="space-y-6">
+                <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <h2 className="text-lg font-semibold">This Month</h2>
+                  {selectedMonthItems.length > 0 ? (
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                      {selectedMonthItems.slice(0, 6).map((item) => (
+                        <Link
+                          key={`${item.event_id}-${item.action}-${item.date}-summary`}
+                          href={`/events/${item.event_id}`}
+                          className="rounded-2xl border border-gray-200 bg-[#faf8f3] p-4"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-gray-900">
+                              {item.event_title}
+                            </p>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${actionClasses(item.action)}`}>
+                              {actionLabel(item.action)}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-sm text-gray-500">{formatEventTime(item.date)}</p>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-gray-500">
+                      No events are scheduled for this month yet.
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+                  <h2 className="text-lg font-semibold">Past Events</h2>
+                  {pastEvents.length > 0 ? (
+                    <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                      {pastEvents.map((item) => (
+                        <Link
+                          key={`${item.event_id}-${item.action}-${item.date}-past`}
+                          href={`/events/${item.event_id}`}
+                          className="rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-gray-300 hover:bg-gray-50"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-gray-900">
+                              {item.event_title}
+                            </p>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${actionClasses(item.action)}`}>
+                              {actionLabel(item.action)}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-sm text-gray-500">{formatEventTime(item.date)}</p>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-gray-500">
+                      Your past events will appear here after they happen.
+                    </p>
+                  )}
+                </div>
               </div>
 
               <footer className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
