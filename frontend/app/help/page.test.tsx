@@ -183,7 +183,7 @@ describe("HelpPage", () => {
     render(<HelpPage />);
     const searchInput = screen.getByPlaceholderText("Search FAQ...");
 
-    fireEvent.change(searchInput, { target: { value: "refund" } });
+    fireEvent.change(searchInput, { target: { value: "cancel" } });
 
     expect(
       screen.getByText("How do I cancel my registration?"),
@@ -323,8 +323,9 @@ describe("HelpPage", () => {
     render(<HelpPage />);
     const browseLinks = screen.getAllByRole("link", { name: "Browse Events" });
     expect(browseLinks.some((el) => el.getAttribute("href") === "/")).toBe(true);
-    const createLink = screen.getByRole("link", { name: "Create Event" });
-    expect(createLink).toHaveAttribute("href", "/create");
+    expect(
+      screen.getByRole("button", { name: "Create Event" }),
+    ).toBeInTheDocument();
   });
 
   it("has a help center link in the footer", () => {

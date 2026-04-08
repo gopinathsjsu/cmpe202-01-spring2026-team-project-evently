@@ -5,7 +5,9 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from pymongo.asynchronous.mongo_client import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import PyMongoError
 
 from backend.db import get_database
 
@@ -105,6 +107,12 @@ async def db() -> AsyncIterator[AsyncDatabase[dict[str, Any]]]:
     url = os.getenv("DATABASE_URL")
     if not url:
         pytest.skip("DATABASE_URL is not set; skipping database tests")
+
+    try:
+        async with AsyncMongoClient(url, serverSelectionTimeoutMS=1000) as client:
+            await client.admin.command("ping")
+    except PyMongoError as exc:
+        pytest.skip(f"DATABASE_URL is not reachable; skipping database tests: {exc}")
 
     async with get_database(url, db_name="evently_test") as database:
         yield database

@@ -1,7 +1,6 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ApiError, apiFetch } from "@/lib/api";
@@ -99,21 +98,21 @@ export function useRequireAuth(): {
 } {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const auth = useAuth();
 
   useEffect(() => {
     if (!auth.loading && !auth.user) {
       const params = new URLSearchParams();
+      const search = window.location.search;
       const nextPath = buildNextPath(
         pathname,
-        searchParams.toString() ? `?${searchParams.toString()}` : "",
+        search,
         window.location.hash,
       );
       params.set("next", nextPath);
       router.replace(`/signin?${params.toString()}`);
     }
-  }, [auth.loading, auth.user, pathname, router, searchParams]);
+  }, [auth.loading, auth.user, pathname, router]);
 
   return auth;
 }
