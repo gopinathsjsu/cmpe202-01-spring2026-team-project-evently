@@ -57,5 +57,6 @@ describe("Navbar", () => {
       "/calendar",
     );
     expect(screen.queryByRole("link", { name: "My Tickets" })).not.toBeInTheDocument();
+    expect(screen.getByText("Taylor Nguyen")).toBeInTheDocument();
   });
 });

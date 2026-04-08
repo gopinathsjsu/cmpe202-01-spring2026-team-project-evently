@@ -7,6 +7,15 @@ import { AuthRequiredAction } from "@/components/auth-required-action";
 import { useAuth } from "@/lib/auth";
 import { withNext } from "@/lib/path-with-next";
 
+function displayName(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined,
+  fallback: string,
+): string {
+  const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+  return fullName || fallback;
+}
+
 function SearchIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -74,7 +83,7 @@ export default function Navbar() {
                 </Link>
               )}
               <span className="hidden text-sm text-gray-700 sm:inline">
-                {user.first_name || user.name}
+                {displayName(user.first_name, user.last_name, user.name)}
               </span>
               <Link
                 href="/logout"

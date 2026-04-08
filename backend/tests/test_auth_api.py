@@ -259,6 +259,48 @@ async def test_callback_reuses_existing_user_with_case_insensitive_email() -> No
     users = app.state.db["users"]._docs
     assert len(users) == 1
     assert users[0]["id"] == 7
+    assert users[0]["first_name"] == "Existing"
+    assert users[0]["last_name"] == "User"
+
+
+@pytest.mark.asyncio
+async def test_callback_refreshes_existing_user_name_and_picture_from_google() -> None:
+    app, client = _make_client(base_url="https://test")
+    await app.state.db["users"].insert_one(
+        {
+            "id": 7,
+            "username": "existing",
+            "first_name": "Old",
+            "last_name": "Name",
+            "email": "user@example.com",
+            "roles": ["user"],
+            "profile_photo_url": "https://example.com/old.png",
+            "profile": {},
+        }
+    )
+    userinfo = {
+        "sub": "google-oauth2|123",
+        "email": "user@example.com",
+        "given_name": "Fresh",
+        "family_name": "User",
+        "picture": "https://example.com/new.png",
+    }
+    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
+
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
+        async with client:
+            callback_resp = await client.get("/auth/callback")
+            session_resp = await client.get("/auth/session")
+
+    updated_user = await app.state.db["users"].find_one({"id": 7})
+
+    assert callback_resp.status_code == 307
+    assert updated_user is not None
+    assert updated_user["first_name"] == "Fresh"
+    assert updated_user["last_name"] == "User"
+    assert updated_user["profile_photo_url"] == "https://example.com/new.png"
+    assert session_resp.json()["user"]["name"] == "Fresh User"
 
 
 @pytest.mark.asyncio

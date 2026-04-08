@@ -165,6 +165,21 @@ def _base_username(userinfo: Mapping[str, object], email: str) -> str:
     return sanitized or "evently_user"
 
 
+def _oauth_profile_updates(userinfo: Mapping[str, object], user: User) -> dict[str, object]:
+    first_name, last_name = _derive_names(userinfo, user.email)
+    profile_photo_url = _string_value(userinfo.get("picture"))
+
+    updates: dict[str, object] = {}
+    if first_name and first_name != user.first_name:
+        updates["first_name"] = first_name
+    if last_name != user.last_name:
+        updates["last_name"] = last_name
+    if profile_photo_url and profile_photo_url != user.profile_photo_url:
+        updates["profile_photo_url"] = profile_photo_url
+
+    return updates
+
+
 async def _next_user_id(db: AsyncDatabase[dict[str, Any]]) -> int:
     if await db["users"].count_documents({}, limit=1) == 0:
         await db["counters"].delete_one({"_id": "users"})
@@ -201,7 +216,12 @@ async def _resolve_or_create_local_user(
 
     existing = await db["users"].find_one({"email": normalized_email})
     if existing is not None:
-        return await _sync_user_roles(db, User(**existing))
+        user = await _sync_user_roles(db, User(**existing))
+        updates = _oauth_profile_updates(userinfo, user)
+        if updates:
+            await db["users"].update_one({"id": user.id}, {"$set": updates})
+            user = user.model_copy(update=updates)
+        return user
 
     first_name, last_name = _derive_names(userinfo, email)
     username = await _unique_username(db, _base_username(userinfo, email))
