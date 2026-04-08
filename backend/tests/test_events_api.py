@@ -693,6 +693,7 @@ async def test_create_event(
     assert stored["title"] == "New Event"
     assert stored["organizer_user_id"] == 1
     assert stored["registered_count"] == 0
+    assert stored["status"] == "pending"
 
 
 @pytest.mark.asyncio

@@ -211,6 +211,14 @@ class EventCreate(BaseModel):
 async def _next_event_id(db: AsyncDatabase[dict[str, Any]]) -> int:
     if await db["events"].count_documents({}, limit=1) == 0:
         await db["counters"].delete_one({"_id": "events"})
+    elif await db["counters"].find_one({"_id": "events"}) is None:
+        latest = await db["events"].find_one({}, sort=[("id", DESCENDING)])
+        next_seq = int(latest["id"]) if latest is not None else 0
+        await db["counters"].update_one(
+            {"_id": "events"},
+            {"$set": {"seq": next_seq}},
+            upsert=True,
+        )
 
     counter = await db["counters"].find_one_and_update(
         {"_id": "events"},
