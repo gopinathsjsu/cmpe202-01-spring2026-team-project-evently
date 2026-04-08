@@ -1,22 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import Navbar from "@/app/components/navbar";
-import { getApiBase } from "@/lib/api-base";
-
-type EventCategory =
-  | "Music"
-  | "Business"
-  | "Arts"
-  | "Food"
-  | "Sports"
-  | "Education"
-  | "Theater"
-  | "Comedy"
-  | "Festival"
-  | "Conference"
-  | "Workshop"
-  | "Other";
+import { apiFetch } from "@/lib/api";
+import type { EventCategory } from "@/lib/types";
 
 interface EventFromApi {
   id: number;
@@ -72,13 +60,14 @@ async function fetchEvents(params: {
   if (params.q?.trim()) search.set("q", params.q.trim());
   if (params.city?.trim()) search.set("city", params.city.trim());
   if (params.category) search.set("category", params.category);
-  if (params.is_online !== undefined)
+  if (params.is_online !== undefined) {
     search.set("is_online", String(params.is_online));
+  }
   if (params.price_type) search.set("price_type", params.price_type);
   if (params.date_preset) search.set("date_preset", params.date_preset);
-  const res = await fetch(`${getApiBase()}/events/?${search.toString()}`);
-  if (!res.ok) throw new Error("Failed to fetch events");
-  return res.json() as Promise<{ items: EventFromApi[]; total: number }>;
+  return apiFetch<{ items: EventFromApi[]; total: number }>(
+    `/events/?${search.toString()}`,
+  );
 }
 
 // Icons
@@ -525,9 +514,12 @@ export default function DiscoverPage() {
                         aria-label="Event image"
                       >
                         {event.image_url && (
-                          <img
+                          <Image
                             src={event.image_url}
-                            alt=""
+                            alt={`${event.title} event image`}
+                            width={640}
+                            height={400}
+                            sizes="(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
                             className="h-full w-full object-cover"
                           />
                         )}

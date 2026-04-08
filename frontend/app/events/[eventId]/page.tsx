@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
@@ -84,9 +85,11 @@ export default async function EventDetailPage({
             {/* Banner image */}
             <div className="relative aspect-[16/7] w-full overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800">
               {event.image_url ? (
-                <img
+                <Image
                   src={event.image_url}
                   alt={event.title}
+                  fill
+                  sizes="(min-width: 1024px) 896px, 100vw"
                   className="h-full w-full object-cover"
                 />
               ) : (
