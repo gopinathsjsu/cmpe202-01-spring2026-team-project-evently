@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AuthRequiredAction } from "@/components/auth-required-action";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { shouldShowAddToCalendar } from "@/lib/calendar-links";
 
 interface RegistrationCardProps {
   eventId: number;
@@ -133,7 +134,7 @@ export function RegistrationCard({
 
   const isRegistered = status === "going";
   const isOrganizer = user?.id === organizerUserId;
-  const isOnCalendar = isOrganizer || status === "going" || status === "checked_in";
+  const showAddToCalendar = shouldShowAddToCalendar(isOrganizer, status);
 
   return (
     <>
@@ -188,7 +189,7 @@ export function RegistrationCard({
         </>
       )}
 
-      {!isOnCalendar ? (
+      {showAddToCalendar ? (
         <a
           href={addToCalendarUrl}
           target="_blank"

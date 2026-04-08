@@ -1,9 +1,11 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ApiError, apiFetch } from "@/lib/api";
+import { buildNextPath } from "@/lib/auth-redirect";
 
 export interface AuthUser {
   id: number;
@@ -38,8 +40,10 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       if (error instanceof ApiError && error.status === 401) {
         return null;
       }
-      currentUserPromise = null;
       throw error;
+    })
+    .finally(() => {
+      currentUserPromise = null;
     });
 
   return currentUserPromise;
@@ -95,15 +99,21 @@ export function useRequireAuth(): {
 } {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const auth = useAuth();
 
   useEffect(() => {
     if (!auth.loading && !auth.user) {
       const params = new URLSearchParams();
-      params.set("next", pathname || "/");
+      const nextPath = buildNextPath(
+        pathname,
+        searchParams.toString() ? `?${searchParams.toString()}` : "",
+        window.location.hash,
+      );
+      params.set("next", nextPath);
       router.replace(`/signin?${params.toString()}`);
     }
-  }, [auth.loading, auth.user, pathname, router]);
+  }, [auth.loading, auth.user, pathname, router, searchParams]);
 
   return auth;
 }

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
+import { buildEventUrl } from "@/lib/calendar-links";
 
 type CalendarView = "Month" | "Week" | "Day";
 type ActivityAction = "attended" | "created" | "registered";
@@ -275,7 +276,7 @@ export default function CalendarPage() {
           `DTEND:${toIcsDate(end.toISOString())}`,
           `SUMMARY:${escapeIcsText(item.event_title)}`,
           `DESCRIPTION:${escapeIcsText(`Imported from Evently Personal Planner (${actionLabel(item.action)})`)}`,
-          `URL:https://evently.local/events/${item.event_id}`,
+          `URL:${buildEventUrl(window.location.origin, item.event_id)}`,
           "END:VEVENT",
         ];
       }),
