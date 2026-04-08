@@ -9,56 +9,6 @@ import { useAuth } from "@/lib/auth";
 import type { EventCategory, PendingEventListItem } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
-// TODO [backend]: Replace this stub with real data once GET /events/pending
-// is implemented on the backend. The useEffect below already calls that
-// endpoint and falls back to this list on any error.
-// ---------------------------------------------------------------------------
-const MOCK_PENDING_EVENTS: PendingEventListItem[] = [
-  {
-    id: 101,
-    title: "Bay Area Jazz Night",
-    category: "Music",
-    start_time: "2026-04-12T20:00:00Z",
-    end_time: "2026-04-12T23:00:00Z",
-    price: 25,
-    is_online: false,
-    location: { venue_name: "The Fillmore", city: "San Francisco", state: "CA" },
-    organizer_user_id: 7,
-    total_capacity: 300,
-    about: "An evening of smooth jazz featuring local Bay Area musicians.",
-    status: "pending",
-  },
-  {
-    id: 102,
-    title: "Startup Pitch Night",
-    category: "Business",
-    start_time: "2026-04-18T18:00:00Z",
-    end_time: "2026-04-18T21:00:00Z",
-    price: 0,
-    is_online: false,
-    location: { venue_name: "SJSU Innovation Hub", city: "San Jose", state: "CA" },
-    organizer_user_id: 12,
-    total_capacity: 150,
-    about: "Watch 10 early-stage startups pitch to a panel of investors.",
-    status: "pending",
-  },
-  {
-    id: 103,
-    title: "Online Watercolor Workshop",
-    category: "Arts",
-    start_time: "2026-04-22T15:00:00Z",
-    end_time: "2026-04-22T17:00:00Z",
-    price: 15,
-    is_online: true,
-    location: { venue_name: null, city: "Online", state: "" },
-    organizer_user_id: 3,
-    total_capacity: 50,
-    about: "A beginner-friendly watercolor painting class led via Zoom.",
-    status: "pending",
-  },
-];
-
-// ---------------------------------------------------------------------------
 // Icons
 // ---------------------------------------------------------------------------
 
@@ -292,12 +242,15 @@ export default function AdminPendingEventsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      // TODO [backend]: GET /events/pending must return PendingEventListItem[].
-      // Until that endpoint exists this falls back to MOCK_PENDING_EVENTS.
       const data = await apiFetch<PendingEventListItem[]>("/events/pending");
       setEvents(data);
-    } catch {
-      setEvents(MOCK_PENDING_EVENTS);
+    } catch (err) {
+      setEvents([]);
+      setLoadError(
+        err instanceof ApiError
+          ? String(err.detail)
+          : "Failed to load pending events.",
+      );
     } finally {
       setLoading(false);
     }
@@ -324,7 +277,6 @@ export default function AdminPendingEventsPage() {
     setEvents((prev) => prev.filter((e) => e.id !== id));
 
     try {
-      // TODO [backend]: POST /events/{id}/approve must exist.
       await apiFetch(`/events/${id}/approve`, { method: "POST" });
       setActionStates((prev) => {
         const next = { ...prev };
@@ -346,7 +298,6 @@ export default function AdminPendingEventsPage() {
     setEvents((prev) => prev.filter((e) => e.id !== id));
 
     try {
-      // TODO [backend]: POST /events/{id}/reject must exist.
       await apiFetch(`/events/${id}/reject`, { method: "POST" });
       setActionStates((prev) => {
         const next = { ...prev };

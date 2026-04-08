@@ -24,6 +24,12 @@ class EventCategory(StrEnum):
     Other = "Other"
 
 
+class EventStatus(StrEnum):
+    Pending = "pending"
+    Approved = "approved"
+    Rejected = "rejected"
+
+
 class Location(BaseModel):
     longitude: float
     latitude: float
@@ -62,6 +68,7 @@ class Event(BaseModel):
     end_time: DateTime
 
     category: EventCategory
+    status: EventStatus = EventStatus.Approved
     is_online: bool = False
     image_url: str | None = None
 

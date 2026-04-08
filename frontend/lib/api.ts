@@ -40,14 +40,18 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const headers = new Headers(init?.headers);
+  const isFormData =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
+  if (!headers.has("Content-Type") && init?.body && !isFormData) {
+    headers.set("Content-Type", "application/json");
+  }
+
   // TODO [auth]: Inject auth headers here when ready.
   const res = await fetch(`${getApiBase()}${path}`, {
     credentials: init?.credentials ?? "include",
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+    headers,
   });
 
   if (!res.ok) {
@@ -59,6 +63,15 @@ export async function apiFetch<T>(
       // response wasn't JSON — keep statusText
     }
     throw new ApiError(res.status, detail);
+  }
+
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return (await res.text()) as T;
   }
 
   return res.json() as Promise<T>;

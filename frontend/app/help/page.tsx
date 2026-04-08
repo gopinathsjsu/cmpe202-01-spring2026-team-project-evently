@@ -182,13 +182,13 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I create an event?",
     answer:
-      'To create an event, click "Create Event" in the navigation bar. Fill out the event details including title, description, date, time, location, and ticket information. You can add images, a schedule, and set your pricing. Once you\'re ready, click "Publish Event" to make it live.',
+      'To create an event, click "Create Event" in the navigation bar. Fill out the event details including title, description, date, time, location, and capacity information. You can add images, a schedule, and pricing details. Once you\'re ready, click "Publish Event" to submit it for review.',
     category: "Events",
   },
   {
-    question: "How do I purchase tickets?",
+    question: "How do I register for an event?",
     answer:
-      "Browse events on the home page or search for specific events. Click on an event to view its details, then select the number of tickets you'd like and click \"Get Tickets\". You'll be guided through a secure checkout process to complete your purchase.",
+      'Browse events on the home page or search for specific events. Click on an event to view its details, then click "Register Now". If you are signed in, your registration is saved immediately and the event appears in your calendar.',
     category: "Ticketing",
   },
   {
@@ -198,15 +198,15 @@ const FAQ_ITEMS: FaqItem[] = [
     category: "Payments",
   },
   {
-    question: "How do I cancel or refund tickets?",
+    question: "How do I cancel my registration?",
     answer:
-      'You can request a cancellation or refund from your "My Tickets" page. Select the ticket you want to cancel and click "Request Refund". Refunds are processed according to the event organizer\'s refund policy, typically within 5-10 business days.',
+      'Open the event details page for the event you joined and click "Cancel Registration". Your attendee status is updated right away and the event is removed from your upcoming plans.',
     category: "Ticketing",
   },
   {
-    question: "Can I transfer my tickets to someone else?",
+    question: "Can I transfer my registration to someone else?",
     answer:
-      'Yes! Go to "My Tickets", select the ticket you want to transfer, and click "Transfer Ticket". Enter the recipient\'s email address and they\'ll receive instructions to claim the ticket. Transfers are free and instant.',
+      "Not yet. Registrations are currently tied to the signed-in account that joined the event. If you can no longer attend, cancel your registration so another attendee can claim the spot.",
     category: "Ticketing",
   },
   {
@@ -216,15 +216,15 @@ const FAQ_ITEMS: FaqItem[] = [
     category: "Events",
   },
   {
-    question: "How do I set up ticket pricing?",
+    question: "How do I set up pricing and capacity?",
     answer:
-      "When creating an event, you can set ticket prices in the Pricing & Capacity section. You can offer free tickets by setting the price to $0, or set a specific price. Multiple ticket tiers will be supported in a future update.",
+      "When creating an event, you can set the event price and attendee capacity. Free events use a price of $0. Support for multiple pricing tiers is planned for a future update.",
     category: "Payments",
   },
   {
-    question: "Are there any fees for selling tickets?",
+    question: "Are there any fees for paid registrations?",
     answer:
-      "Evently charges a small service fee on paid tickets to cover payment processing and platform maintenance. Free events have no fees. The exact fee structure is shown during event creation.",
+      "Free events have no fees in the current experience. Paid event fee handling and checkout details will be expanded as payment support is added.",
     category: "Payments",
   },
   {
@@ -234,21 +234,21 @@ const FAQ_ITEMS: FaqItem[] = [
     category: "Events",
   },
   {
-    question: "Can I get a receipt for my ticket purchase?",
+    question: "Can I get a confirmation for my registration?",
     answer:
-      'Yes, a receipt is automatically emailed to you after each purchase. You can also view and download receipts from your "My Tickets" page by selecting a ticket and clicking "View Receipt".',
+      "You can confirm your joined events from your personal calendar and the event page itself. Dedicated receipt downloads are not part of the current registration flow.",
     category: "Payments",
   },
   {
     question: "What happens if an event is cancelled?",
     answer:
-      "If an organizer cancels an event, all ticket holders are automatically notified and refunds are processed within 5-10 business days. You'll receive an email with details about the refund.",
+      "If an organizer cancels an event, attendees should be notified and removed from the active event roster. Refund and payment workflows depend on the final payment feature rollout.",
     category: "Events",
   },
   {
     question: "How do I check in at an event?",
     answer:
-      'When you arrive at the event, show your ticket QR code from the "My Tickets" page to the event staff. They\'ll scan it to check you in. You can also use the mobile-friendly version of your ticket.',
+      "Check-in support is tracked in the attendee status flow. Event staff can mark attendees as checked in through the backend workflow once that interface is enabled.",
     category: "Ticketing",
   },
 ];

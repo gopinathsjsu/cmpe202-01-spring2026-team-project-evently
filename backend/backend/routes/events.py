@@ -9,7 +9,13 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.db import get_db
 from backend.models.attendance import AttendanceStatus
-from backend.models.event import Event, EventCategory, EventScheduleEntry, Location
+from backend.models.event import (
+    Event,
+    EventCategory,
+    EventScheduleEntry,
+    EventStatus,
+    Location,
+)
 from backend.models.event_favorite import EventFavorite
 from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
@@ -124,6 +130,38 @@ class AttendanceCancelResponse(BaseModel):
     event_id: int
     user_id: int
     status: Literal["cancelled"] = "cancelled"
+
+
+class PendingEventListItem(BaseModel):
+    id: int
+    title: str
+    about: str
+    organizer_user_id: int
+    price: float
+    total_capacity: int
+    start_time: datetime
+    end_time: datetime
+    category: EventCategory
+    status: Literal["pending"]
+    is_online: bool
+    location: LocationSummary
+
+    @classmethod
+    def from_event(cls, event: Event) -> "PendingEventListItem":
+        return cls(
+            id=event.id,
+            title=event.title,
+            about=event.about,
+            organizer_user_id=event.organizer_user_id,
+            price=event.price,
+            total_capacity=event.total_capacity,
+            start_time=event.start_time,
+            end_time=event.end_time,
+            category=event.category,
+            status="pending",
+            is_online=event.is_online,
+            location=LocationSummary.from_location(event.location),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +294,11 @@ def _resolve_date_preset(preset: str) -> tuple[datetime, datetime]:
     return first, end
 
 
+def _require_admin(current_user: AuthSessionUser) -> None:
+    if "admin" not in current_user.roles:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+
+
 # ---------------------------------------------------------------------------
 # GET /events/  — List with filters, search, sort, pagination
 # ---------------------------------------------------------------------------
@@ -309,40 +352,59 @@ async def list_events(
 ) -> PaginatedEvents:
     """List events with filtering, search, sorting, and pagination."""
     collection = db["events"]
-    filters: dict[str, object] = {}
+    conditions: list[dict[str, object]] = [
+        {
+            "$or": [
+                {"status": EventStatus.Approved.value},
+                {"status": {"$exists": False}},
+            ]
+        }
+    ]
 
     if q:
         escaped_q = re.escape(q)
-        filters["$or"] = [
-            {"title": {"$regex": escaped_q, "$options": "i"}},
-            {"about": {"$regex": escaped_q, "$options": "i"}},
-        ]
+        conditions.append(
+            {
+                "$or": [
+                    {"title": {"$regex": escaped_q, "$options": "i"}},
+                    {"about": {"$regex": escaped_q, "$options": "i"}},
+                ]
+            }
+        )
 
     if category is not None:
-        filters["category"] = category.value
+        conditions.append({"category": category.value})
 
     if city is not None:
         escaped_city = re.escape(city)
-        filters["location.city"] = {"$regex": f"^{escaped_city}$", "$options": "i"}
+        conditions.append(
+            {"location.city": {"$regex": f"^{escaped_city}$", "$options": "i"}}
+        )
 
     if is_online is not None:
-        filters["is_online"] = is_online
+        conditions.append({"is_online": is_online})
 
     if price_type == "free":
-        filters["price"] = 0.0
+        conditions.append({"price": 0.0})
     elif price_type == "paid":
-        filters["price"] = {"$gt": 0}
+        conditions.append({"price": {"$gt": 0}})
 
     if date_preset:
         preset_from, preset_to = _resolve_date_preset(date_preset)
-        filters["start_time"] = {"$gte": preset_from, "$lt": preset_to}
+        conditions.append({"start_time": {"$gte": preset_from, "$lt": preset_to}})
     elif start_from or start_to:
         time_filter: dict[str, datetime] = {}
         if start_from is not None:
             time_filter["$gte"] = start_from
         if start_to is not None:
             time_filter["$lte"] = start_to
-        filters["start_time"] = time_filter
+        conditions.append({"start_time": time_filter})
+
+    filters: dict[str, object]
+    if len(conditions) == 1:
+        filters = conditions[0]
+    else:
+        filters = {"$and": conditions}
 
     sort_direction = ASCENDING if sort_order == "asc" else DESCENDING
     sort_key = {"start_time": "start_time", "price": "price", "title": "title"}[sort_by]
@@ -368,6 +430,20 @@ async def list_events(
         )
 
     return PaginatedEvents(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/pending", response_model=list[PendingEventListItem])
+async def list_pending_events(
+    db: DbDep, current_user: AuthUserDep
+) -> list[PendingEventListItem]:
+    _require_admin(current_user)
+    raw_events = await (
+        db["events"]
+        .find({"status": EventStatus.Pending.value})
+        .sort("start_time", ASCENDING)
+        .to_list(length=None)
+    )
+    return [PendingEventListItem.from_event(Event(**raw)) for raw in raw_events]
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +618,7 @@ async def create_event(
         start_time=body.start_time,
         end_time=body.end_time,
         category=body.category,
+        status=EventStatus.Pending,
         is_online=body.is_online,
         image_url=body.image_url,
         schedule=body.schedule,
@@ -551,6 +628,36 @@ async def create_event(
     await db["events"].insert_one({**event.model_dump(), "registered_count": 0})
 
     return EventDetail.from_event(event, attending_count=0, favorites_count=0)
+
+
+@router.post("/{event_id}/approve", response_model=PendingEventListItem)
+async def approve_event(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> PendingEventListItem:
+    _require_admin(current_user)
+    raw = await db["events"].find_one_and_update(
+        {"id": event_id, "status": EventStatus.Pending.value},
+        {"$set": {"status": EventStatus.Approved.value}},
+        return_document=ReturnDocument.BEFORE,
+    )
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Pending event not found")
+    return PendingEventListItem.from_event(Event(**raw))
+
+
+@router.post("/{event_id}/reject", response_model=PendingEventListItem)
+async def reject_event(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> PendingEventListItem:
+    _require_admin(current_user)
+    raw = await db["events"].find_one_and_update(
+        {"id": event_id, "status": EventStatus.Pending.value},
+        {"$set": {"status": EventStatus.Rejected.value}},
+        return_document=ReturnDocument.BEFORE,
+    )
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Pending event not found")
+    return PendingEventListItem.from_event(Event(**raw))
 
 
 # ---------------------------------------------------------------------------

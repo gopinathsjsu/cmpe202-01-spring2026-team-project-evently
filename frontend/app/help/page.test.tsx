@@ -75,7 +75,7 @@ describe("HelpPage", () => {
       screen.getByText("How do I create an event?"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("How do I purchase tickets?"),
+      screen.getByText("How do I register for an event?"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("What payment methods are accepted?"),
@@ -186,7 +186,7 @@ describe("HelpPage", () => {
     fireEvent.change(searchInput, { target: { value: "refund" } });
 
     expect(
-      screen.getByText("How do I cancel or refund tickets?"),
+      screen.getByText("How do I cancel my registration?"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("How do I create an event?"),
