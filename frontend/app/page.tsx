@@ -1,8 +1,10 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import Navbar from "@/app/components/navbar";
+import { AuthRequiredAction } from "@/components/auth-required-action";
 import { apiFetch } from "@/lib/api";
 import type { EventCategory } from "@/lib/types";
 
@@ -509,21 +511,6 @@ export default function DiscoverPage() {
                       key={event.id}
                       className="overflow-hidden rounded-lg border border-gray-200 bg-white transition-shadow hover:shadow-md"
                     >
-                      <div
-                        className="aspect-[16/10] w-full bg-gray-200"
-                        aria-label="Event image"
-                      >
-                        {event.image_url && (
-                          <Image
-                            src={event.image_url}
-                            alt={`${event.title} event image`}
-                            width={640}
-                            height={400}
-                            sizes="(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
-                            className="h-full w-full object-cover"
-                          />
-                        )}
-                      </div>
                       <div className="relative p-4">
                         <button
                           type="button"
@@ -532,28 +519,50 @@ export default function DiscoverPage() {
                         >
                           <HeartIcon filled={false} className="h-5 w-5" />
                         </button>
-                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                          {formatEventDate(event.start_time)}
-                        </p>
-                        <h3 className="mt-1 text-lg font-bold text-black">
-                          {event.title}
-                        </h3>
-                        <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
-                          {event.is_online ? (
-                            <GlobeIcon className="h-4 w-4 shrink-0" />
-                          ) : (
-                            <MapPinIcon className="h-4 w-4 shrink-0" />
-                          )}
-                          <span>
-                            {formatLocation(event.location, event.is_online)}
-                          </span>
-                        </p>
-                        <p className="mt-2 text-sm font-medium text-black">
-                          {formatPrice(event.price)}
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          {formatAttending(event.attending_count)}
-                        </p>
+                        <Link
+                          href={`/events/${event.id}`}
+                          className="block rounded-md focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
+                        >
+                          <div
+                            className="aspect-[16/10] w-full bg-gray-200"
+                            aria-label="Event image"
+                          >
+                            {event.image_url && (
+                              <Image
+                                src={event.image_url}
+                                alt={`${event.title} event image`}
+                                width={640}
+                                height={400}
+                                sizes="(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw"
+                                className="h-full w-full object-cover"
+                              />
+                            )}
+                          </div>
+                          <div className="pt-4">
+                            <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                              {formatEventDate(event.start_time)}
+                            </p>
+                            <h3 className="mt-1 text-lg font-bold text-black hover:underline">
+                              {event.title}
+                            </h3>
+                            <p className="mt-1 flex items-center gap-1 text-sm text-gray-600">
+                              {event.is_online ? (
+                                <GlobeIcon className="h-4 w-4 shrink-0" />
+                              ) : (
+                                <MapPinIcon className="h-4 w-4 shrink-0" />
+                              )}
+                              <span>
+                                {formatLocation(event.location, event.is_online)}
+                              </span>
+                            </p>
+                            <p className="mt-2 text-sm font-medium text-black">
+                              {formatPrice(event.price)}
+                            </p>
+                            <p className="mt-1 text-sm text-gray-500">
+                              {formatAttending(event.attending_count)}
+                            </p>
+                          </div>
+                        </Link>
                       </div>
                     </article>
                   ))}
@@ -614,12 +623,14 @@ export default function DiscoverPage() {
             <p className="mt-3 text-lg text-gray-600">
               Create and manage events with our easy-to-use platform.
             </p>
-            <a
-              href="/create"
+            <AuthRequiredAction
+              actionLabel="create an event"
+              authenticatedHref="/create"
+              nextPath="/create"
               className="mt-6 inline-block rounded-md bg-black px-6 py-3 text-base font-medium text-white hover:bg-gray-800"
             >
               Create Event
-            </a>
+            </AuthRequiredAction>
           </div>
         </section>
 

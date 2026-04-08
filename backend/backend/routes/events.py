@@ -114,6 +114,12 @@ class AttendanceStatusResponse(BaseModel):
     status: Literal["going", "checked_in", "cancelled"] | None
 
 
+class AttendanceRegisterResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["going"] = "going"
+
+
 class AttendanceCancelResponse(BaseModel):
     event_id: int
     user_id: int
@@ -364,6 +370,62 @@ async def get_my_attendance(
         user_id=current_user.id,
         status=attendance["status"] if attendance is not None else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /events/{event_id}/attendance  — Register current user for an event
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{event_id}/attendance", response_model=AttendanceRegisterResponse)
+async def register_attendance(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> AttendanceRegisterResponse:
+    """Register the authenticated user for a given event."""
+    raw_event = await db["events"].find_one({"id": event_id})
+    if raw_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw_event)
+    if event.organizer_user_id == current_user.id:
+        raise HTTPException(
+            status_code=400, detail="Organizers cannot register for their own events"
+        )
+
+    existing = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": current_user.id},
+        sort=[("_id", DESCENDING)],
+    )
+    if existing is not None and existing["status"] != AttendanceStatus.Cancelled.value:
+        return AttendanceRegisterResponse(event_id=event_id, user_id=current_user.id)
+
+    attending_count = await db["attendance"].count_documents(
+        {"event_id": event_id, "status": {"$ne": AttendanceStatus.Cancelled.value}}
+    )
+    if attending_count >= event.total_capacity:
+        raise HTTPException(status_code=400, detail="This event is sold out")
+
+    if existing is None:
+        await db["attendance"].insert_one(
+            {
+                "event_id": event_id,
+                "user_id": current_user.id,
+                "status": AttendanceStatus.Going.value,
+                "checked_in_at": None,
+            }
+        )
+    else:
+        await db["attendance"].update_many(
+            {"event_id": event_id, "user_id": current_user.id},
+            {
+                "$set": {
+                    "status": AttendanceStatus.Going.value,
+                    "checked_in_at": None,
+                }
+            },
+        )
+
+    return AttendanceRegisterResponse(event_id=event_id, user_id=current_user.id)
 
 
 # ---------------------------------------------------------------------------

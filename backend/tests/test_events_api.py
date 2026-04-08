@@ -140,6 +140,95 @@ async def test_get_event_attendance_status_returns_none_when_missing(
 
 
 @pytest.mark.asyncio
+async def test_register_event_attendance_creates_registration(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"event_id": 1, "user_id": 7, "status": "going"}
+
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "going"
+
+
+@pytest.mark.asyncio
+async def test_register_event_attendance_restores_cancelled_registration(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "cancelled", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"event_id": 1, "user_id": 7, "status": "going"}
+
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "going"
+
+
+@pytest.mark.asyncio
+async def test_register_event_attendance_rejects_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, _auth_user(1))
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Organizers cannot register for their own events"
+
+
+@pytest.mark.asyncio
+async def test_register_event_attendance_rejects_sold_out_event(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "total_capacity": 1})
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 5, "status": "going", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "This event is sold out"
+
+
+@pytest.mark.asyncio
+async def test_register_event_attendance_requires_authentication(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db)
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Authentication required"
+
+
+@pytest.mark.asyncio
 async def test_cancel_event_attendance_marks_registration_cancelled(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:

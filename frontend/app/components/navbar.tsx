@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { AuthRequiredAction } from "@/components/auth-required-action";
 import { useAuth } from "@/lib/auth";
+import { withNext } from "@/lib/path-with-next";
 
 function SearchIcon({ className }: { className?: string }) {
   return (
@@ -17,10 +19,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const { user, loading } = useAuth();
   const isAdmin = user?.roles.includes("admin") ?? false;
-  const navLinks = [
-    { href: "/create", label: "Create Event" },
-    ...(user ? [{ href: "/calendar", label: "My Calendar" }] : []),
-  ];
+  const nextPath = pathname || "/";
 
   return (
     <header className="sticky top-0 z-50 border-b border-gray-200 bg-white">
@@ -33,18 +32,22 @@ export default function Navbar() {
             <span className="text-lg font-semibold">Evently</span>
           </Link>
           <nav className="hidden items-center gap-6 md:flex">
-            {navLinks.map((link) => {
-              const isActive = pathname === link.href;
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`text-sm font-medium ${isActive ? "text-black" : "text-gray-700 hover:text-black"}`}
-                >
-                  {link.label}
-                </Link>
-              );
-            })}
+            <AuthRequiredAction
+              actionLabel="create an event"
+              authenticatedHref="/create"
+              nextPath="/create"
+              className={`text-sm font-medium ${pathname === "/create" ? "text-black" : "text-gray-700 hover:text-black"}`}
+            >
+              Create Event
+            </AuthRequiredAction>
+            {user ? (
+              <Link
+                href="/calendar"
+                className={`text-sm font-medium ${pathname === "/calendar" ? "text-black" : "text-gray-700 hover:text-black"}`}
+              >
+                My Calendar
+              </Link>
+            ) : null}
           </nav>
         </div>
         <div className="flex flex-1 items-center justify-center max-w-md px-4">
@@ -82,10 +85,10 @@ export default function Navbar() {
             </>
           ) : (
             <>
-              <Link href="/signin" className="text-sm font-medium text-gray-700 hover:text-black">
+              <Link href={withNext("/signin", nextPath)} className="text-sm font-medium text-gray-700 hover:text-black">
                 Sign In
               </Link>
-              <Link href="/signup" className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
+              <Link href={withNext("/signup", nextPath)} className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
                 Sign Up
               </Link>
             </>

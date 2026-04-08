@@ -1,7 +1,9 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AuthRequiredAction } from "@/components/auth-required-action";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -31,6 +33,7 @@ export function RegistrationCard({
   price,
   spotsLeft,
 }: RegistrationCardProps) {
+  const pathname = usePathname();
   const { user, loading: authLoading } = useAuth();
   const [status, setStatus] = useState<AttendanceStatusResponse["status"]>(null);
   const [statusLoading, setStatusLoading] = useState(false);
@@ -105,6 +108,29 @@ export function RegistrationCard({
     }
   }
 
+  async function handleRegister() {
+    setActionLoading(true);
+    setError(null);
+
+    try {
+      const response = await apiFetch<AttendanceStatusResponse>(
+        `/events/${eventId}/attendance`,
+        {
+          method: "POST",
+        },
+      );
+      setStatus(response.status);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Could not register for this event.",
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   const isRegistered = status === "going";
   const isOrganizer = user?.id === organizerUserId;
   const isOnCalendar = isOrganizer || status === "going" || status === "checked_in";
@@ -146,13 +172,19 @@ export function RegistrationCard({
             <span className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{formatPrice(price)}</span>
           </div>
 
-          <button
-            type="button"
-            disabled={spotsLeft <= 0}
+          <AuthRequiredAction
+            actionLabel="register for this event"
+            onAuthenticatedClick={handleRegister}
+            nextPath={pathname || `/events/${eventId}`}
+            disabled={spotsLeft <= 0 || actionLoading}
             className="mt-5 w-full rounded-full bg-black py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
           >
-            {spotsLeft > 0 ? "Register Now" : "Sold Out"}
-          </button>
+            {spotsLeft > 0
+              ? actionLoading
+                ? "Registering..."
+                : "Register Now"
+              : "Sold Out"}
+          </AuthRequiredAction>
         </>
       )}
 
