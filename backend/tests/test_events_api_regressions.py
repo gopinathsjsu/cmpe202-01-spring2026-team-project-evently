@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import Any
 
 import pytest
@@ -107,8 +107,9 @@ async def test_today_preset_excludes_start_of_tomorrow(
 
     class FrozenDateTime(datetime):
         @classmethod
-        def now(cls, tz=None) -> datetime:
-            return now if tz is not None else now.replace(tzinfo=None)
+        def now(cls, tz: tzinfo | None = None) -> "FrozenDateTime":
+            frozen = now if tz is not None else now.replace(tzinfo=None)
+            return cls.fromtimestamp(frozen.timestamp(), tz=frozen.tzinfo)
 
     monkeypatch.setattr(events_route, "datetime", FrozenDateTime)
 

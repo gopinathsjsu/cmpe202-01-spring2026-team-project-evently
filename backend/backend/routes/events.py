@@ -410,11 +410,9 @@ async def list_events(
             time_filter["$lte"] = start_to
         conditions.append({"start_time": time_filter})
 
-    filters: dict[str, object]
-    if len(conditions) == 1:
-        filters = conditions[0]
-    else:
-        filters = {"$and": conditions}
+    filters: dict[str, object] = (
+        conditions[0] if len(conditions) == 1 else {"$and": conditions}
+    )
 
     sort_direction = ASCENDING if sort_order == "asc" else DESCENDING
     sort_key = {"start_time": "start_time", "price": "price", "title": "title"}[sort_by]

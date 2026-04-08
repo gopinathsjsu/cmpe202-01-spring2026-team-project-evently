@@ -1,5 +1,6 @@
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -271,7 +272,9 @@ async def test_upload_photo_replaces_old(
 
 @pytest.mark.asyncio
 async def test_upload_photo_invalid_extension_keeps_existing_photo(
-    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any], tmp_path
+    db: AsyncDatabase[dict[str, Any]],
+    user_data: dict[str, Any],
+    tmp_path: Path,
 ) -> None:
     await _clean(db)
     monkeypatched_user = {

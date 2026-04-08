@@ -1,10 +1,14 @@
 import os
 
+import pytest
+
 from backend.cli import parse_args
 from backend.main import cli
 
 
-def test_parse_args_accepts_database_url_override(monkeypatch) -> None:
+def test_parse_args_accepts_database_url_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
 
     parsed = parse_args(["--database-url", "mongodb://override", "--port", "9000"])
@@ -13,7 +17,9 @@ def test_parse_args_accepts_database_url_override(monkeypatch) -> None:
     assert parsed.port == 9000
 
 
-def test_parse_args_prefers_explicit_database_url_over_env(monkeypatch) -> None:
+def test_parse_args_prefers_explicit_database_url_over_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("DATABASE_URL", "mongodb://from-env")
 
     parsed = parse_args(["--database-url", "mongodb://from-cli"])
@@ -21,10 +27,14 @@ def test_parse_args_prefers_explicit_database_url_over_env(monkeypatch) -> None:
     assert parsed.database_url == "mongodb://from-cli"
 
 
-def test_cli_sets_database_url_before_starting_server(monkeypatch) -> None:
+def test_cli_sets_database_url_before_starting_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     recorded: dict[str, object] = {}
 
-    def fake_run(app: str, *, host: str, port: int, log_level: str, reload: bool) -> None:
+    def fake_run(
+        app: str, *, host: str, port: int, log_level: str, reload: bool
+    ) -> None:
         recorded["app"] = app
         recorded["host"] = host
         recorded["port"] = port
