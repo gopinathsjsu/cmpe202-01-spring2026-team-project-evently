@@ -583,7 +583,7 @@ async def test_get_user_activity_not_found(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db, auth_user=_auth_user())
+    _, client = _make_client(db, auth_user=_auth_user(user_id=9999))
     async with client:
         resp = await client.get("/users/9999/activity")
     assert resp.status_code == 404
