@@ -8,13 +8,13 @@ import { apiFetch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import { buildEventUrl } from "@/lib/calendar-links";
 
-type CalendarView = "Month" | "Week" | "Day";
 type ActivityAction = "attended" | "created" | "registered";
 
 interface ActivityItem {
   event_id: number;
   event_title: string;
   event_image_url: string | null;
+  event_end_time: string | null;
   action: ActivityAction;
   date: string;
 }
@@ -29,11 +29,21 @@ interface CalendarSource {
   action: ActivityAction;
 }
 
+interface CalendarViewOption {
+  label: string;
+  enabled: boolean;
+}
+
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const CALENDAR_SOURCES: CalendarSource[] = [
   { label: "Created Events", color: "bg-black", action: "created" },
   { label: "Registered Events", color: "bg-blue-600", action: "registered" },
   { label: "Attended Events", color: "bg-gray-400", action: "attended" },
+];
+const CALENDAR_VIEW_OPTIONS: CalendarViewOption[] = [
+  { label: "Month", enabled: true },
+  { label: "Week", enabled: false },
+  { label: "Day", enabled: false },
 ];
 
 function PlusIcon({ className }: { className?: string }) {
@@ -136,7 +146,6 @@ function toIcsDate(dateString: string): string {
 
 export default function CalendarPage() {
   const { user, loading: authLoading, error: authError } = useRequireAuth();
-  const [activeView, setActiveView] = useState<CalendarView>("Month");
   const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(new Date()));
   const [calendarLoadedAt] = useState(() => Date.now());
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -253,7 +262,7 @@ export default function CalendarPage() {
     });
   }, [calendarLoadedAt, normalizedActivity]);
 
-  function handleGoogleCalendarExport() {
+  function handleCalendarExport() {
     if (exportableEvents.length === 0) {
       return;
     }
@@ -266,7 +275,10 @@ export default function CalendarPage() {
       "METHOD:PUBLISH",
       ...exportableEvents.flatMap((item) => {
         const start = new Date(item.date);
-        const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+        const end =
+          item.event_end_time && !Number.isNaN(new Date(item.event_end_time).getTime())
+            ? new Date(item.event_end_time)
+            : new Date(start.getTime() + 2 * 60 * 60 * 1000);
 
         return [
           "BEGIN:VEVENT",
@@ -294,8 +306,6 @@ export default function CalendarPage() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-
-    window.open("https://calendar.google.com/", "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -335,19 +345,21 @@ export default function CalendarPage() {
                 </Link>
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 transition hover:border-black hover:text-black"
+                  disabled
+                  title="Event import is coming soon."
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-400 transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <UploadIcon className="h-4 w-4" />
-                  Import Events
+                  Import Events Soon
                 </button>
                 <button
                   type="button"
-                  onClick={handleGoogleCalendarExport}
+                  onClick={handleCalendarExport}
                   disabled={exportableEvents.length === 0}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <CalendarIcon className="h-4 w-4" />
-                  Add to Google Calendar
+                  Export Calendar (.ics)
                 </button>
               </div>
             </section>
@@ -366,10 +378,12 @@ export default function CalendarPage() {
                     </Link>
                     <button
                       type="button"
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 transition hover:border-black hover:text-black"
+                      disabled
+                      title="Event import is coming soon."
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-400 transition disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <UploadIcon className="h-4 w-4" />
-                      Import Events
+                      Import Events Soon
                     </button>
                   </div>
                 </div>
@@ -443,25 +457,25 @@ export default function CalendarPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    {(["Month", "Week", "Day"] as CalendarView[]).map((view) => (
+                    {CALENDAR_VIEW_OPTIONS.map((view) => (
                       <button
-                        key={view}
+                        key={view.label}
                         type="button"
-                        onClick={() => setActiveView(view)}
+                        disabled={!view.enabled}
                         className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-                          activeView === view
+                          view.enabled
                             ? "bg-black text-white"
-                            : "border border-gray-200 text-gray-600 hover:border-black hover:text-black"
+                            : "border border-gray-200 text-gray-400 disabled:cursor-not-allowed disabled:opacity-70"
                         }`}
+                        title={view.enabled ? undefined : `${view.label} view is coming soon.`}
                       >
-                        {view}
+                        {view.label}
                       </button>
                     ))}
                     <button
                       type="button"
                       onClick={() => {
                         setDisplayMonth(startOfMonth(new Date()));
-                        setActiveView("Month");
                       }}
                       className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:border-black hover:text-black"
                     >
@@ -472,18 +486,6 @@ export default function CalendarPage() {
 
                 {activityError ? (
                   <div className="px-6 py-6 text-sm text-red-700">{activityError}</div>
-                ) : activeView !== "Month" ? (
-                  <div className="px-6 py-10">
-                    <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center">
-                      <CalendarIcon className="mx-auto h-10 w-10 text-gray-400" />
-                      <p className="mt-4 text-lg font-medium text-gray-900">
-                        {activeView} view is coming next
-                      </p>
-                      <p className="mt-2 text-sm text-gray-500">
-                        Month view is ready now, with your event activity mapped onto the calendar.
-                      </p>
-                    </div>
-                  </div>
                 ) : (
                   <div className="px-4 pb-4 pt-5 sm:px-6 sm:pb-6">
                     <div className="grid grid-cols-7 overflow-hidden rounded-2xl border border-gray-200">

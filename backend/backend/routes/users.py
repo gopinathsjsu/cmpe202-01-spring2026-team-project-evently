@@ -94,6 +94,7 @@ class ActivityItem(BaseModel):
     event_id: int
     event_title: str
     event_image_url: str | None
+    event_end_time: datetime | None = None
     action: Literal["attended", "created", "registered"]
     date: datetime
 
@@ -371,6 +372,7 @@ async def get_user_activity(
                 event_id=raw_event["id"],
                 event_title=raw_event["title"],
                 event_image_url=raw_event.get("image_url"),
+                event_end_time=raw_event.get("end_time"),
                 action="created",
                 date=raw_event["start_time"],
             )
@@ -417,6 +419,7 @@ async def get_user_activity(
                 event_id=event_raw["id"],
                 event_title=event_raw["title"],
                 event_image_url=event_raw.get("image_url"),
+                event_end_time=event_raw.get("end_time"),
                 action=action,
                 date=date,
             )

@@ -559,6 +559,7 @@ async def test_get_user_activity(
     actions = {item["action"] for item in items}
     assert "created" in actions
     assert "attended" in actions
+    assert all("event_end_time" in item for item in items)
 
 
 @pytest.mark.asyncio
