@@ -56,7 +56,9 @@ class _FakeCollection:
             count = len(self._docs)
         else:
             count = sum(
-                1 for doc in self._docs if all(doc.get(key) == value for key, value in query.items())
+                1
+                for doc in self._docs
+                if all(doc.get(key) == value for key, value in query.items())
             )
         if limit is not None:
             return min(count, limit)

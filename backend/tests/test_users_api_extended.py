@@ -101,7 +101,12 @@ async def test_update_user_rejects_duplicate_email(
     await db["users"].insert_many(
         [
             user_data,
-            {**user_data, "id": 2, "username": "otheruser", "email": "other@example.com"},
+            {
+                **user_data,
+                "id": 2,
+                "username": "otheruser",
+                "email": "other@example.com",
+            },
         ]
     )
 
@@ -121,7 +126,12 @@ async def test_update_user_rejects_duplicate_username(
     await db["users"].insert_many(
         [
             user_data,
-            {**user_data, "id": 2, "username": "otheruser", "email": "other@example.com"},
+            {
+                **user_data,
+                "id": 2,
+                "username": "otheruser",
+                "email": "other@example.com",
+            },
         ]
     )
 

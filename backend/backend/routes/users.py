@@ -172,7 +172,9 @@ async def _ensure_unique_user_fields(
     if "username" in normalized:
         username = str(normalized["username"]).strip()
         normalized["username"] = username
-        existing_username = await db["users"].find_one({"username": username}, {"id": 1})
+        existing_username = await db["users"].find_one(
+            {"username": username}, {"id": 1}
+        )
         if existing_username is not None and existing_username.get("id") != user_id:
             raise HTTPException(status_code=409, detail="Username is already in use")
 

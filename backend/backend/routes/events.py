@@ -471,7 +471,9 @@ async def register_attendance(
                 },
             )
             if result.matched_count != 1:
-                raise HTTPException(status_code=409, detail="Registration state changed")
+                raise HTTPException(
+                    status_code=409, detail="Registration state changed"
+                )
     except Exception:
         await _release_event_slot(db, event_id)
         raise
