@@ -49,6 +49,25 @@ class _FakeCollection:
     async def insert_one(self, doc: dict[str, object]) -> None:
         self._docs.append(doc)
 
+    async def count_documents(
+        self, query: dict[str, object] | None = None, *, limit: int | None = None
+    ) -> int:
+        if not query:
+            count = len(self._docs)
+        else:
+            count = sum(
+                1 for doc in self._docs if all(doc.get(key) == value for key, value in query.items())
+            )
+        if limit is not None:
+            return min(count, limit)
+        return count
+
+    async def delete_one(self, query: dict[str, object]) -> None:
+        for idx, doc in enumerate(self._docs):
+            if all(doc.get(key) == value for key, value in query.items()):
+                self._docs.pop(idx)
+                return
+
     async def update_one(
         self, query: dict[str, object], update: dict[str, dict[str, object]]
     ) -> None:
@@ -58,6 +77,27 @@ class _FakeCollection:
 
         for key, value in update.get("$set", {}).items():
             doc[key] = value
+
+    async def find_one_and_update(
+        self,
+        query: dict[str, object],
+        update: dict[str, dict[str, object]],
+        *,
+        upsert: bool = False,
+        return_document: object | None = None,
+    ) -> dict[str, object] | None:
+        doc = await self.find_one(query)
+        if doc is None:
+            if not upsert:
+                return None
+            doc = dict(query)
+            self._docs.append(doc)
+
+        for key, value in update.get("$inc", {}).items():
+            doc[key] = cast(int, doc.get(key, 0)) + cast(int, value)
+        for key, value in update.get("$set", {}).items():
+            doc[key] = value
+        return doc
 
 
 class _FakeDb:
@@ -185,6 +225,38 @@ async def test_callback_stores_userinfo_in_session() -> None:
         auth_routes._EVENTLY_USER_SESSION_KEY: 1,
         auth_routes._POST_AUTH_REDIRECT_KEY: None,
     }
+
+
+@pytest.mark.asyncio
+async def test_callback_reuses_existing_user_with_case_insensitive_email() -> None:
+    app, client = _make_client(base_url="https://test")
+    await app.state.db["users"].insert_one(
+        {
+            "id": 7,
+            "username": "existing",
+            "first_name": "Existing",
+            "last_name": "User",
+            "email": "user@example.com",
+            "roles": ["user"],
+            "profile": {},
+        }
+    )
+    userinfo = {
+        "sub": "google-oauth2|123",
+        "email": "User@Example.com",
+        "name": "Existing User",
+    }
+    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
+
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
+        async with client:
+            resp = await client.get("/auth/callback")
+
+    assert resp.status_code == 307
+    users = app.state.db["users"]._docs
+    assert len(users) == 1
+    assert users[0]["id"] == 7
 
 
 @pytest.mark.asyncio

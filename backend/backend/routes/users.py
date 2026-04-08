@@ -156,6 +156,29 @@ async def _get_user_or_404(db: AsyncDatabase[dict[str, Any]], user_id: int) -> U
     return User(**raw)
 
 
+async def _ensure_unique_user_fields(
+    db: AsyncDatabase[dict[str, Any]], user_id: int, provided: dict[str, Any]
+) -> dict[str, Any]:
+    normalized = dict(provided)
+
+    if "email" in normalized:
+        normalized["email"] = str(normalized["email"]).strip().lower()
+        existing_email = await db["users"].find_one(
+            {"email": normalized["email"]}, {"id": 1}
+        )
+        if existing_email is not None and existing_email.get("id") != user_id:
+            raise HTTPException(status_code=409, detail="Email is already in use")
+
+    if "username" in normalized:
+        username = str(normalized["username"]).strip()
+        normalized["username"] = username
+        existing_username = await db["users"].find_one({"username": username}, {"id": 1})
+        if existing_username is not None and existing_username.get("id") != user_id:
+            raise HTTPException(status_code=409, detail="Username is already in use")
+
+    return normalized
+
+
 async def _build_user_detail(
     db: AsyncDatabase[dict[str, Any]], user: User
 ) -> UserDetail:
@@ -217,7 +240,9 @@ async def update_user(
     await _get_user_or_404(db, user_id)
 
     updates: dict[str, Any] = {}
-    provided = body.model_dump(exclude_none=True)
+    provided = await _ensure_unique_user_fields(
+        db, user_id, body.model_dump(exclude_none=True)
+    )
 
     for field, value in provided.items():
         if field in _USER_TOP_LEVEL_FIELDS:
@@ -261,8 +286,8 @@ async def upload_photo(
     if user.profile_photo_url:
         old_filename = user.profile_photo_url.rsplit("/", 1)[-1]
         old_path = os.path.join(UPLOAD_DIR, old_filename)
-        if os.path.exists(old_path):
-            os.remove(old_path)
+    else:
+        old_path = None
 
     ext = (file.filename or "photo.jpg").rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_PHOTO_EXTENSIONS:
@@ -277,9 +302,17 @@ async def upload_photo(
         f.write(contents)
 
     photo_url = f"/uploads/{filename}"
-    await db["users"].update_one(
-        {"id": user_id}, {"$set": {"profile_photo_url": photo_url}}
-    )
+    try:
+        await db["users"].update_one(
+            {"id": user_id}, {"$set": {"profile_photo_url": photo_url}}
+        )
+    except Exception:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise
+
+    if old_path and os.path.exists(old_path):
+        os.remove(old_path)
 
     return PhotoResponse(profile_photo_url=photo_url)
 
@@ -348,14 +381,23 @@ async def get_user_activity(
         .limit(limit)
     )
     attendance_records = await attendance_cursor.to_list(length=limit)
+    latest_attendance_records: list[dict[str, Any]] = []
+    seen_event_ids: set[int] = set()
+    for raw_att in reversed(attendance_records):
+        event_id = raw_att["event_id"]
+        if event_id in seen_event_ids:
+            continue
+        seen_event_ids.add(event_id)
+        latest_attendance_records.append(raw_att)
+    latest_attendance_records.reverse()
 
-    event_ids = list({r["event_id"] for r in attendance_records})
+    event_ids = list({r["event_id"] for r in latest_attendance_records})
     events_by_id: dict[int, dict[str, Any]] = {}
     if event_ids:
         async for ev in db["events"].find({"id": {"$in": event_ids}}):
             events_by_id[ev["id"]] = ev
 
-    for raw_att in attendance_records:
+    for raw_att in latest_attendance_records:
         if raw_att["status"] == "cancelled":
             continue
 

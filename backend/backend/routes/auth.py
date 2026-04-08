@@ -9,7 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from pymongo import DESCENDING
+from pymongo import ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 from starlette.config import Config
 from starlette.datastructures import URL
@@ -166,8 +166,18 @@ def _base_username(userinfo: Mapping[str, object], email: str) -> str:
 
 
 async def _next_user_id(db: AsyncDatabase[dict[str, Any]]) -> int:
-    last = await db["users"].find_one(sort=[("id", DESCENDING)])
-    return int(last["id"]) + 1 if last else 1
+    if await db["users"].count_documents({}, limit=1) == 0:
+        await db["counters"].delete_one({"_id": "users"})
+
+    counter = await db["counters"].find_one_and_update(
+        {"_id": "users"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    if counter is None:
+        raise HTTPException(status_code=500, detail="Failed to allocate user ID")
+    return int(counter["seq"])
 
 
 async def _unique_username(
@@ -187,8 +197,9 @@ async def _resolve_or_create_local_user(
     email = _string_value(userinfo.get("email"))
     if email is None:
         return None
+    normalized_email = _normalized_email(email)
 
-    existing = await db["users"].find_one({"email": email})
+    existing = await db["users"].find_one({"email": normalized_email})
     if existing is not None:
         return await _sync_user_roles(db, User(**existing))
 
@@ -199,7 +210,7 @@ async def _resolve_or_create_local_user(
         username=username,
         first_name=first_name,
         last_name=last_name,
-        email=email,
+        email=normalized_email,
         roles=_roles_for_email(email),
         profile_photo_url=_string_value(userinfo.get("picture")),
     )
