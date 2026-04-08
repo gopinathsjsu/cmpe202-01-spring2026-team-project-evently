@@ -299,6 +299,16 @@ def _require_admin(current_user: AuthSessionUser) -> None:
         raise HTTPException(status_code=403, detail="Administrator access required")
 
 
+def _public_event_visibility_filter(event_id: int) -> dict[str, Any]:
+    return {
+        "id": event_id,
+        "$or": [
+            {"status": EventStatus.Approved.value},
+            {"status": {"$exists": False}},
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # GET /events/  — List with filters, search, sort, pagination
 # ---------------------------------------------------------------------------
@@ -454,7 +464,7 @@ async def list_pending_events(
 @router.get("/{event_id}", response_model=EventDetail)
 async def get_event(db: DbDep, event_id: int) -> EventDetail:
     """Retrieve full details for a single event."""
-    raw = await db["events"].find_one({"id": event_id})
+    raw = await db["events"].find_one(_public_event_visibility_filter(event_id))
     if raw is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -479,7 +489,9 @@ async def get_my_attendance(
     db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> AttendanceStatusResponse:
     """Return the authenticated user's attendance status for a given event."""
-    event = await db["events"].find_one({"id": event_id}, {"_id": 1})
+    event = await db["events"].find_one(
+        _public_event_visibility_filter(event_id), {"_id": 1}
+    )
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -505,7 +517,7 @@ async def register_attendance(
     db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> AttendanceRegisterResponse:
     """Register the authenticated user for a given event."""
-    raw_event = await db["events"].find_one({"id": event_id})
+    raw_event = await db["events"].find_one(_public_event_visibility_filter(event_id))
     if raw_event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -567,7 +579,9 @@ async def cancel_attendance(
     db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> AttendanceCancelResponse:
     """Cancel the authenticated user's registration for a given event."""
-    event = await db["events"].find_one({"id": event_id}, {"_id": 1})
+    event = await db["events"].find_one(
+        _public_event_visibility_filter(event_id), {"_id": 1}
+    )
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -638,11 +652,13 @@ async def approve_event(
     raw = await db["events"].find_one_and_update(
         {"id": event_id, "status": EventStatus.Pending.value},
         {"$set": {"status": EventStatus.Approved.value}},
-        return_document=ReturnDocument.BEFORE,
+        return_document=ReturnDocument.AFTER,
     )
     if raw is None:
         raise HTTPException(status_code=404, detail="Pending event not found")
-    return PendingEventListItem.from_event(Event(**raw))
+    return PendingEventListItem.from_event(
+        Event(**raw).model_copy(update={"status": EventStatus.Pending})
+    )
 
 
 @router.post("/{event_id}/reject", response_model=PendingEventListItem)
@@ -653,11 +669,13 @@ async def reject_event(
     raw = await db["events"].find_one_and_update(
         {"id": event_id, "status": EventStatus.Pending.value},
         {"$set": {"status": EventStatus.Rejected.value}},
-        return_document=ReturnDocument.BEFORE,
+        return_document=ReturnDocument.AFTER,
     )
     if raw is None:
         raise HTTPException(status_code=404, detail="Pending event not found")
-    return PendingEventListItem.from_event(Event(**raw))
+    return PendingEventListItem.from_event(
+        Event(**raw).model_copy(update={"status": EventStatus.Pending})
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -672,7 +690,7 @@ async def add_favorite(
     db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> FavoriteAddResponse:
     """Add an event to a user's favorites (idempotent)."""
-    event = await db["events"].find_one({"id": event_id})
+    event = await db["events"].find_one(_public_event_visibility_filter(event_id))
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -699,7 +717,7 @@ async def remove_favorite(
     db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> FavoriteRemoveResponse:
     """Remove an event from a user's favorites."""
-    event = await db["events"].find_one({"id": event_id})
+    event = await db["events"].find_one(_public_event_visibility_filter(event_id))
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 

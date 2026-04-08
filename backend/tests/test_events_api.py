@@ -222,6 +222,20 @@ async def test_register_event_attendance_rejects_sold_out_event(
 
 
 @pytest.mark.asyncio
+async def test_register_event_attendance_hides_pending_event(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "status": "pending"})
+
+    _, client = _make_client(db, auth_user=_auth_user(7))
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_register_event_attendance_requires_authentication(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
@@ -618,6 +632,20 @@ async def test_get_event_not_found(
     assert resp.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_get_event_hides_pending_event(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "status": "pending"})
+
+    _, client = _make_client(db)
+    async with client:
+        resp = await client.get("/events/1")
+
+    assert resp.status_code == 404
+
+
 # -----------------------------------------------------------------------
 # POST /events/  — Create
 # -----------------------------------------------------------------------
@@ -802,6 +830,20 @@ async def test_favorite_nonexistent_event(
     _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.post("/events/9999/favorites")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_favorite_pending_event_hidden_from_public_access(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "status": "pending"})
+
+    _, client = _make_client(db, auth_user=_auth_user())
+    async with client:
+        resp = await client.post("/events/1/favorites")
+
     assert resp.status_code == 404
 
 

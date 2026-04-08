@@ -85,6 +85,7 @@ async def test_approve_event_updates_status(
         resp = await client.post("/events/1/approve")
 
     assert resp.status_code == 200
+    assert resp.json()["status"] == "pending"
     saved = await db["events"].find_one({"id": 1})
     assert saved is not None
     assert saved["status"] == "approved"
@@ -102,6 +103,7 @@ async def test_reject_event_updates_status(
         resp = await client.post("/events/1/reject")
 
     assert resp.status_code == 200
+    assert resp.json()["status"] == "pending"
     saved = await db["events"].find_one({"id": 1})
     assert saved is not None
     assert saved["status"] == "rejected"

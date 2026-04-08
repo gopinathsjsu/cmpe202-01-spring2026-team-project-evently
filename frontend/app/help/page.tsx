@@ -212,7 +212,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I contact the event organizer?",
     answer:
-      "On the event details page, you'll find the organizer's information in the sidebar. Click on the organizer's name to view their profile, or use the \"Contact Organizer\" button to send them a direct message through our platform.",
+      "On the event details page, you can view the organizer information in the sidebar and open their public profile. Direct organizer messaging is not part of the current product yet.",
     category: "Events",
   },
   {
@@ -230,7 +230,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I edit my event after publishing?",
     answer:
-      "Navigate to your event page and click the edit button if you're the organizer. You can update the title, description, schedule, and other details. Note that some changes (like date) may trigger notifications to attendees.",
+      "Event editing is not available in the current product. If you need to correct event details after publishing, plan to recreate the event or contact your team/admin while edit support is being built.",
     category: "Events",
   },
   {
@@ -248,7 +248,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I check in at an event?",
     answer:
-      "Check-in support is tracked in the attendee status flow. Event staff can mark attendees as checked in through the backend workflow once that interface is enabled.",
+      "Self-serve check-in is not available in the current product. The backend supports attendance states, but a dedicated organizer check-in interface has not been shipped yet.",
     category: "Ticketing",
   },
 ];
