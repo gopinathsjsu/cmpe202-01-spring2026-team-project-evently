@@ -56,6 +56,36 @@ class UserDetail(BaseModel):
         )
 
 
+class PublicUserDetail(BaseModel):
+    id: int
+    username: str
+    first_name: str
+    last_name: str
+    profile_photo_url: str | None = None
+    profile: UserProfile
+    events_created_count: int = 0
+    events_attended_count: int = 0
+
+    @classmethod
+    def from_user(
+        cls,
+        user: User,
+        *,
+        events_created_count: int = 0,
+        events_attended_count: int = 0,
+    ) -> PublicUserDetail:
+        return cls(
+            id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            profile_photo_url=user.profile_photo_url,
+            profile=user.profile,
+            events_created_count=events_created_count,
+            events_attended_count=events_attended_count,
+        )
+
+
 class PhotoResponse(BaseModel):
     profile_photo_url: str | None
 
@@ -140,6 +170,20 @@ async def _build_user_detail(
     )
 
 
+async def _build_public_user_detail(
+    db: AsyncDatabase[dict[str, Any]], user: User
+) -> PublicUserDetail:
+    events_created = await db["events"].count_documents({"organizer_user_id": user.id})
+    events_attended = await db["attendance"].count_documents(
+        {"user_id": user.id, "status": {"$eq": "checked_in"}}
+    )
+    return PublicUserDetail.from_user(
+        user,
+        events_created_count=events_created,
+        events_attended_count=events_attended,
+    )
+
+
 def _ensure_same_user(current_user: AuthSessionUser, user_id: int) -> None:
     if current_user.id != user_id:
         raise HTTPException(
@@ -152,11 +196,11 @@ def _ensure_same_user(current_user: AuthSessionUser, user_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{user_id}", response_model=UserDetail)
-async def get_user(db: DbDep, user_id: int) -> UserDetail:
-    """Retrieve full details for a single user."""
+@router.get("/{user_id}", response_model=PublicUserDetail)
+async def get_user(db: DbDep, user_id: int) -> PublicUserDetail:
+    """Retrieve public details for a single user."""
     user = await _get_user_or_404(db, user_id)
-    return await _build_user_detail(db, user)
+    return await _build_public_user_detail(db, user)
 
 
 # ---------------------------------------------------------------------------
@@ -271,9 +315,11 @@ async def delete_photo(db: DbDep, user_id: int, current_user: AuthUserDep) -> No
 async def get_user_activity(
     db: DbDep,
     user_id: int,
+    current_user: AuthUserDep,
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> ActivityResponse:
     """Return a user's recent activity (events created, attended, registered)."""
+    _ensure_same_user(current_user, user_id)
     await _get_user_or_404(db, user_id)
 
     items: list[ActivityItem] = []

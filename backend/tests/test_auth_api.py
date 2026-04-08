@@ -75,7 +75,7 @@ def clear_oauth_cache() -> Iterator[None]:
     auth_routes.get_oauth.cache_clear()
 
 
-def _make_client() -> tuple[FastAPI, AsyncClient]:
+def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
     app = create_app()
     fake_db = _FakeDb()
     app.state.db = fake_db
@@ -107,7 +107,7 @@ def _make_client() -> tuple[FastAPI, AsyncClient]:
         return await read_session(request)
 
     transport = ASGITransport(app=app)
-    client = AsyncClient(transport=transport, base_url="http://test")
+    client = AsyncClient(transport=transport, base_url=base_url)
     return app, client
 
 
@@ -118,7 +118,7 @@ async def test_login_returns_503_when_oauth_not_configured(
     monkeypatch.delenv("OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("OAUTH_CLIENT_SECRET", raising=False)
 
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     async with client:
         resp = await client.get("/auth/login")
 
@@ -128,7 +128,7 @@ async def test_login_returns_503_when_oauth_not_configured(
 
 @pytest.mark.asyncio
 async def test_login_redirects_to_google_and_uses_callback_url() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     redirect = RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
     authorize_redirect = AsyncMock(return_value=redirect)
     google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
@@ -142,12 +142,15 @@ async def test_login_redirects_to_google_and_uses_callback_url() -> None:
     assert resp.headers["location"] == "https://accounts.google.com/o/oauth2/auth"
     assert authorize_redirect.await_count == 1
     assert await_args is not None
-    assert await_args.args[1] == "http://test/auth/callback"
+    assert await_args.args[1] == "https://test/auth/callback"
+    set_cookie = resp.headers.get("set-cookie", "")
+    assert "evently_session=" in set_cookie
+    assert "samesite=lax" in set_cookie
 
 
 @pytest.mark.asyncio
 async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     authorize_redirect = AsyncMock(return_value="not-a-redirect")
     google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
 
@@ -161,7 +164,7 @@ async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
 
 @pytest.mark.asyncio
 async def test_callback_stores_userinfo_in_session() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     userinfo = {
         "sub": "google-oauth2|123",
         "email": "user@example.com",
@@ -186,7 +189,7 @@ async def test_callback_stores_userinfo_in_session() -> None:
 
 @pytest.mark.asyncio
 async def test_callback_returns_400_when_oauth_fails() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     authorize_access_token = AsyncMock(
         side_effect=OAuthError(error="access_denied", description="Denied")
     )
@@ -313,7 +316,7 @@ async def test_callback_redirects_to_configured_frontend_origin(
 ) -> None:
     monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
 
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     userinfo = {
         "sub": "google-oauth2|123",
         "email": "user@example.com",
@@ -330,9 +333,7 @@ async def test_callback_redirects_to_configured_frontend_origin(
 
     with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
-            await client.get(
-                "http://test/auth/login?next=https://frontend.example.com/create"
-            )
+            await client.get("/auth/login?next=https://frontend.example.com/create")
             resp = await client.get("/auth/callback")
 
     assert resp.status_code == 307
@@ -340,8 +341,29 @@ async def test_callback_redirects_to_configured_frontend_origin(
 
 
 @pytest.mark.asyncio
+async def test_login_uses_secure_session_cookie_for_https_frontend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
+
+    _, client = _make_client(base_url="https://test")
+    redirect = RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+    authorize_redirect = AsyncMock(return_value=redirect)
+    google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
+
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
+        async with client:
+            resp = await client.get("/auth/login")
+
+    set_cookie = resp.headers.get("set-cookie", "")
+    assert "evently_session=" in set_cookie
+    assert "samesite=lax" in set_cookie
+    assert "secure" in set_cookie
+
+
+@pytest.mark.asyncio
 async def test_login_uses_allowed_referer_as_post_auth_redirect() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     authorize_redirect = AsyncMock(
         return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
     )
@@ -368,7 +390,7 @@ async def test_login_rejects_disallowed_next_and_falls_back_to_primary_origin(
 ) -> None:
     monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
 
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     authorize_redirect = AsyncMock(
         return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
     )

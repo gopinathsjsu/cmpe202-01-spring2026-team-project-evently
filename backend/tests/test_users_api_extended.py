@@ -263,7 +263,7 @@ async def test_activity_custom_limit(
     ]
     await db["events"].insert_many(events)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity", params={"limit": 3})
 
@@ -278,7 +278,7 @@ async def test_activity_limit_zero_rejected(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity", params={"limit": 0})
 
@@ -292,7 +292,7 @@ async def test_activity_limit_exceeds_max_rejected(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity", params={"limit": 51})
 
@@ -335,7 +335,7 @@ async def test_activity_with_registered_and_attended(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 
@@ -375,7 +375,7 @@ async def test_activity_sorts_by_date_desc(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 
@@ -401,7 +401,7 @@ async def test_activity_orphaned_attendance_skipped(
         }
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 
@@ -429,7 +429,7 @@ async def test_activity_cancelled_attendance_skipped(
         }
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 
