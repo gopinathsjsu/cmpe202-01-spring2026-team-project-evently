@@ -622,6 +622,55 @@ async def test_auth_session_creates_local_user_from_oauth_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auth_session_reconciles_stale_local_user_with_current_oauth_user() -> None:
+    app, client = _make_client()
+    stale_user = User(
+        id=7,
+        username="sarah",
+        first_name="Sarah",
+        last_name="Johnson",
+        email="sarah@example.com",
+    )
+    current_user = User(
+        id=8,
+        username="lucas",
+        first_name="Lucas",
+        last_name="Nguyen",
+        email="lucas.h.nguyen@sjsu.edu",
+    )
+    await app.state.db["users"].insert_one(stale_user.model_dump(mode="json"))
+    await app.state.db["users"].insert_one(current_user.model_dump(mode="json"))
+
+    async with client:
+        await client.post(
+            "/_test/session",
+            json={
+                auth_routes._OAUTH_USER_SESSION_KEY: {
+                    "email": "lucas.h.nguyen@sjsu.edu",
+                    "given_name": "Lucas",
+                    "family_name": "Nguyen",
+                },
+                auth_routes._EVENTLY_USER_SESSION_KEY: 7,
+            },
+        )
+        resp = await client.get("/auth/session")
+        session_resp = await client.get("/_test/session")
+
+    assert resp.status_code == 200
+    assert resp.json()["user"]["id"] == 8
+    assert resp.json()["user"]["name"] == "Lucas Nguyen"
+    assert session_resp.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: {
+            "email": "lucas.h.nguyen@sjsu.edu",
+            "given_name": "Lucas",
+            "family_name": "Nguyen",
+        },
+        auth_routes._EVENTLY_USER_SESSION_KEY: 8,
+        auth_routes._POST_AUTH_REDIRECT_KEY: None,
+    }
+
+
+@pytest.mark.asyncio
 async def test_resolve_or_create_local_user_stores_roles_as_list() -> None:
     db = _FakeDb()
 
@@ -654,6 +703,30 @@ async def test_resolve_or_create_local_user_assigns_admin_role_from_admin_emails
             "email": "Admin@Example.com",
             "given_name": "Admin",
             "family_name": "User",
+        },
+    )
+
+    stored = await db["users"].find_one()
+
+    assert user is not None
+    assert stored is not None
+    assert sorted(role.value for role in user.roles) == ["admin", "user"]
+    assert stored["roles"] == ["admin", "user"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_or_create_local_user_assigns_admin_role_from_quoted_admin_emails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", '"lucas.h.nguyen@sjsu.edu,admin2@example.com"')
+    db = _FakeDb()
+
+    user = await auth_routes._resolve_or_create_local_user(
+        cast(Any, db),
+        {
+            "email": "lucas.h.nguyen@sjsu.edu",
+            "given_name": "Lucas",
+            "family_name": "Nguyen",
         },
     )
 

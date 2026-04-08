@@ -116,7 +116,7 @@ def _string_value(value: object) -> str | None:
 
 
 def _normalized_email(value: str) -> str:
-    return value.strip().lower()
+    return value.strip().strip("\"'").lower()
 
 
 def _configured_admin_emails() -> set[str]:
@@ -178,6 +178,13 @@ def _oauth_profile_updates(userinfo: Mapping[str, object], user: User) -> dict[s
         updates["profile_photo_url"] = profile_photo_url
 
     return updates
+
+
+def _oauth_email(userinfo: Mapping[str, object]) -> str | None:
+    email = _string_value(userinfo.get("email"))
+    if email is None:
+        return None
+    return _normalized_email(email)
 
 
 async def _next_user_id(db: AsyncDatabase[dict[str, Any]]) -> int:
@@ -258,29 +265,33 @@ async def _sync_user_roles(db: AsyncDatabase[dict[str, Any]], user: User) -> Use
 async def _get_authenticated_user(
     db: AsyncDatabase[dict[str, Any]], request: Request
 ) -> AuthSessionUser | None:
+    oauth_user = request.session.get(_OAUTH_USER_SESSION_KEY)
+    oauth_email = _oauth_email(oauth_user) if is_google_userinfo(oauth_user) else None
+
     local_user_id = request.session.get(_EVENTLY_USER_SESSION_KEY)
     if isinstance(local_user_id, int):
         existing = await db["users"].find_one({"id": local_user_id})
         if existing is not None:
             user = await _sync_user_roles(db, User(**existing))
-            oauth_user = request.session.get(_OAUTH_USER_SESSION_KEY)
-            picture = None
-            if is_google_userinfo(oauth_user):
-                picture = _string_value(oauth_user.get("picture"))
-            full_name = " ".join(
-                part for part in [user.first_name, user.last_name] if part
-            ).strip()
-            return AuthSessionUser(
-                id=user.id,
-                email=user.email,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                name=full_name or user.username,
-                roles=_serialized_roles(user.roles),
-                picture=picture or user.profile_photo_url,
-            )
+            if oauth_email is None or oauth_email == _normalized_email(user.email):
+                picture = None
+                if is_google_userinfo(oauth_user):
+                    picture = _string_value(oauth_user.get("picture"))
+                full_name = " ".join(
+                    part for part in [user.first_name, user.last_name] if part
+                ).strip()
+                return AuthSessionUser(
+                    id=user.id,
+                    email=user.email,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    name=full_name or user.username,
+                    roles=_serialized_roles(user.roles),
+                    picture=picture or user.profile_photo_url,
+                )
 
-    oauth_user = request.session.get(_OAUTH_USER_SESSION_KEY)
+        request.session.pop(_EVENTLY_USER_SESSION_KEY, None)
+
     if not is_google_userinfo(oauth_user):
         return None
 
@@ -372,6 +383,8 @@ async def auth(request: Request, db: DbDep) -> RedirectResponse:
 async def login(request: Request) -> RedirectResponse:
     """Initiate the OAuth login flow by redirecting to Google's authorization endpoint."""
     google_client = get_google_client()
+    request.session.pop(_OAUTH_USER_SESSION_KEY, None)
+    request.session.pop(_EVENTLY_USER_SESSION_KEY, None)
     request.session[_POST_AUTH_REDIRECT_KEY] = _resolve_redirect_target(request)
     redir = await google_client.authorize_redirect(
         request, str(request.url_for("auth"))
