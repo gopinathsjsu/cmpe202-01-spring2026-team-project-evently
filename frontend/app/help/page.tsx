@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { AuthNav } from "@/components/auth-nav";
+import Navbar from "@/app/components/navbar";
 import { getApiBase } from "@/lib/api-base";
 
 // ---------------------------------------------------------------------------
@@ -182,13 +182,13 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I create an event?",
     answer:
-      'To create an event, click "Create Event" in the navigation bar. Fill out the event details including title, description, date, time, location, and ticket information. You can add images, a schedule, and set your pricing. Once you\'re ready, click "Publish Event" to make it live.',
+      'To create an event, click "Create Event" in the navigation bar. Fill out the event details including title, description, date, time, location, and capacity information. You can add images, a schedule, and pricing details. Once you\'re ready, click "Publish Event" to submit it for review.',
     category: "Events",
   },
   {
-    question: "How do I purchase tickets?",
+    question: "How do I register for an event?",
     answer:
-      "Browse events on the home page or search for specific events. Click on an event to view its details, then select the number of tickets you'd like and click \"Get Tickets\". You'll be guided through a secure checkout process to complete your purchase.",
+      'Browse events on the home page or search for specific events. Click on an event to view its details, then click "Register Now". If you are signed in, your registration is saved immediately and the event appears in your calendar.',
     category: "Ticketing",
   },
   {
@@ -198,57 +198,57 @@ const FAQ_ITEMS: FaqItem[] = [
     category: "Payments",
   },
   {
-    question: "How do I cancel or refund tickets?",
+    question: "How do I cancel my registration?",
     answer:
-      'You can request a cancellation or refund from your "My Tickets" page. Select the ticket you want to cancel and click "Request Refund". Refunds are processed according to the event organizer\'s refund policy, typically within 5-10 business days.',
+      'Open the event details page for the event you joined and click "Cancel Registration". Your attendee status is updated right away and the event is removed from your upcoming plans.',
     category: "Ticketing",
   },
   {
-    question: "Can I transfer my tickets to someone else?",
+    question: "Can I transfer my registration to someone else?",
     answer:
-      'Yes! Go to "My Tickets", select the ticket you want to transfer, and click "Transfer Ticket". Enter the recipient\'s email address and they\'ll receive instructions to claim the ticket. Transfers are free and instant.',
+      "Not yet. Registrations are currently tied to the signed-in account that joined the event. If you can no longer attend, cancel your registration so another attendee can claim the spot.",
     category: "Ticketing",
   },
   {
     question: "How do I contact the event organizer?",
     answer:
-      "On the event details page, you'll find the organizer's information in the sidebar. Click on the organizer's name to view their profile, or use the \"Contact Organizer\" button to send them a direct message through our platform.",
+      "On the event details page, you can view the organizer information in the sidebar and open their public profile. Direct organizer messaging is not part of the current product yet.",
     category: "Events",
   },
   {
-    question: "How do I set up ticket pricing?",
+    question: "How do I set up pricing and capacity?",
     answer:
-      "When creating an event, you can set ticket prices in the Pricing & Capacity section. You can offer free tickets by setting the price to $0, or set a specific price. Multiple ticket tiers will be supported in a future update.",
+      "When creating an event, you can set the event price and attendee capacity. Free events use a price of $0. Support for multiple pricing tiers is planned for a future update.",
     category: "Payments",
   },
   {
-    question: "Are there any fees for selling tickets?",
+    question: "Are there any fees for paid registrations?",
     answer:
-      "Evently charges a small service fee on paid tickets to cover payment processing and platform maintenance. Free events have no fees. The exact fee structure is shown during event creation.",
+      "Free events have no fees in the current experience. Paid event fee handling and checkout details will be expanded as payment support is added.",
     category: "Payments",
   },
   {
     question: "How do I edit my event after publishing?",
     answer:
-      "Navigate to your event page and click the edit button if you're the organizer. You can update the title, description, schedule, and other details. Note that some changes (like date) may trigger notifications to attendees.",
+      "Event editing is not available in the current product. If you need to correct event details after publishing, plan to recreate the event or contact your team/admin while edit support is being built.",
     category: "Events",
   },
   {
-    question: "Can I get a receipt for my ticket purchase?",
+    question: "Can I get a confirmation for my registration?",
     answer:
-      'Yes, a receipt is automatically emailed to you after each purchase. You can also view and download receipts from your "My Tickets" page by selecting a ticket and clicking "View Receipt".',
+      "You can confirm your joined events from your personal calendar and the event page itself. Dedicated receipt downloads are not part of the current registration flow.",
     category: "Payments",
   },
   {
     question: "What happens if an event is cancelled?",
     answer:
-      "If an organizer cancels an event, all ticket holders are automatically notified and refunds are processed within 5-10 business days. You'll receive an email with details about the refund.",
+      "If an organizer cancels an event, attendees should be notified and removed from the active event roster. Refund and payment workflows depend on the final payment feature rollout.",
     category: "Events",
   },
   {
     question: "How do I check in at an event?",
     answer:
-      'When you arrive at the event, show your ticket QR code from the "My Tickets" page to the event staff. They\'ll scan it to check you in. You can also use the mobile-friendly version of your ticket.',
+      "Self-serve check-in is not available in the current product. The backend supports attendance states, but a dedicated organizer check-in interface has not been shipped yet.",
     category: "Ticketing",
   },
 ];
@@ -407,35 +407,7 @@ export default function HelpPage() {
 
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-8">
-            <a href="/" className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded bg-black text-white text-sm font-bold">
-                E
-              </span>
-              <span className="text-lg font-semibold">Evently</span>
-            </a>
-            <nav className="hidden items-center gap-6 md:flex">
-              <a href="/" className="text-sm font-medium text-gray-700 hover:text-black">Browse Events</a>
-              <a href="/create" className="text-sm font-medium text-gray-700 hover:text-black">Create Event</a>
-              <a href="/tickets" className="text-sm font-medium text-gray-700 hover:text-black">My Tickets</a>
-            </nav>
-          </div>
-          <div className="flex flex-1 items-center justify-center max-w-md px-4">
-            <div className="relative w-full">
-              <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                type="search"
-                placeholder="Search events..."
-                className="w-full rounded-md border border-gray-300 bg-gray-50 py-2 pl-9 pr-4 text-sm placeholder:text-gray-500 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-              />
-            </div>
-          </div>
-          <AuthNav />
-        </div>
-      </header>
+      <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="flex gap-10">

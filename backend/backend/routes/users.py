@@ -56,6 +56,36 @@ class UserDetail(BaseModel):
         )
 
 
+class PublicUserDetail(BaseModel):
+    id: int
+    username: str
+    first_name: str
+    last_name: str
+    profile_photo_url: str | None = None
+    profile: UserProfile
+    events_created_count: int = 0
+    events_attended_count: int = 0
+
+    @classmethod
+    def from_user(
+        cls,
+        user: User,
+        *,
+        events_created_count: int = 0,
+        events_attended_count: int = 0,
+    ) -> PublicUserDetail:
+        return cls(
+            id=user.id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            profile_photo_url=user.profile_photo_url,
+            profile=user.profile,
+            events_created_count=events_created_count,
+            events_attended_count=events_attended_count,
+        )
+
+
 class PhotoResponse(BaseModel):
     profile_photo_url: str | None
 
@@ -64,6 +94,7 @@ class ActivityItem(BaseModel):
     event_id: int
     event_title: str
     event_image_url: str | None
+    event_end_time: datetime | None = None
     action: Literal["attended", "created", "registered"]
     date: datetime
 
@@ -126,6 +157,31 @@ async def _get_user_or_404(db: AsyncDatabase[dict[str, Any]], user_id: int) -> U
     return User(**raw)
 
 
+async def _ensure_unique_user_fields(
+    db: AsyncDatabase[dict[str, Any]], user_id: int, provided: dict[str, Any]
+) -> dict[str, Any]:
+    normalized = dict(provided)
+
+    if "email" in normalized:
+        normalized["email"] = str(normalized["email"]).strip().lower()
+        existing_email = await db["users"].find_one(
+            {"email": normalized["email"]}, {"id": 1}
+        )
+        if existing_email is not None and existing_email.get("id") != user_id:
+            raise HTTPException(status_code=409, detail="Email is already in use")
+
+    if "username" in normalized:
+        username = str(normalized["username"]).strip()
+        normalized["username"] = username
+        existing_username = await db["users"].find_one(
+            {"username": username}, {"id": 1}
+        )
+        if existing_username is not None and existing_username.get("id") != user_id:
+            raise HTTPException(status_code=409, detail="Username is already in use")
+
+    return normalized
+
+
 async def _build_user_detail(
     db: AsyncDatabase[dict[str, Any]], user: User
 ) -> UserDetail:
@@ -134,6 +190,20 @@ async def _build_user_detail(
         {"user_id": user.id, "status": {"$eq": "checked_in"}}
     )
     return UserDetail.from_user(
+        user,
+        events_created_count=events_created,
+        events_attended_count=events_attended,
+    )
+
+
+async def _build_public_user_detail(
+    db: AsyncDatabase[dict[str, Any]], user: User
+) -> PublicUserDetail:
+    events_created = await db["events"].count_documents({"organizer_user_id": user.id})
+    events_attended = await db["attendance"].count_documents(
+        {"user_id": user.id, "status": {"$eq": "checked_in"}}
+    )
+    return PublicUserDetail.from_user(
         user,
         events_created_count=events_created,
         events_attended_count=events_attended,
@@ -152,11 +222,11 @@ def _ensure_same_user(current_user: AuthSessionUser, user_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{user_id}", response_model=UserDetail)
-async def get_user(db: DbDep, user_id: int) -> UserDetail:
-    """Retrieve full details for a single user."""
+@router.get("/{user_id}", response_model=PublicUserDetail)
+async def get_user(db: DbDep, user_id: int) -> PublicUserDetail:
+    """Retrieve public details for a single user."""
     user = await _get_user_or_404(db, user_id)
-    return await _build_user_detail(db, user)
+    return await _build_public_user_detail(db, user)
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +243,9 @@ async def update_user(
     await _get_user_or_404(db, user_id)
 
     updates: dict[str, Any] = {}
-    provided = body.model_dump(exclude_none=True)
+    provided = await _ensure_unique_user_fields(
+        db, user_id, body.model_dump(exclude_none=True)
+    )
 
     for field, value in provided.items():
         if field in _USER_TOP_LEVEL_FIELDS:
@@ -217,8 +289,8 @@ async def upload_photo(
     if user.profile_photo_url:
         old_filename = user.profile_photo_url.rsplit("/", 1)[-1]
         old_path = os.path.join(UPLOAD_DIR, old_filename)
-        if os.path.exists(old_path):
-            os.remove(old_path)
+    else:
+        old_path = None
 
     ext = (file.filename or "photo.jpg").rsplit(".", 1)[-1].lower()
     if ext not in ALLOWED_PHOTO_EXTENSIONS:
@@ -233,9 +305,17 @@ async def upload_photo(
         f.write(contents)
 
     photo_url = f"/uploads/{filename}"
-    await db["users"].update_one(
-        {"id": user_id}, {"$set": {"profile_photo_url": photo_url}}
-    )
+    try:
+        await db["users"].update_one(
+            {"id": user_id}, {"$set": {"profile_photo_url": photo_url}}
+        )
+    except Exception:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise
+
+    if old_path and os.path.exists(old_path):
+        os.remove(old_path)
 
     return PhotoResponse(profile_photo_url=photo_url)
 
@@ -271,9 +351,11 @@ async def delete_photo(db: DbDep, user_id: int, current_user: AuthUserDep) -> No
 async def get_user_activity(
     db: DbDep,
     user_id: int,
+    current_user: AuthUserDep,
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> ActivityResponse:
     """Return a user's recent activity (events created, attended, registered)."""
+    _ensure_same_user(current_user, user_id)
     await _get_user_or_404(db, user_id)
 
     items: list[ActivityItem] = []
@@ -290,6 +372,7 @@ async def get_user_activity(
                 event_id=raw_event["id"],
                 event_title=raw_event["title"],
                 event_image_url=raw_event.get("image_url"),
+                event_end_time=raw_event.get("end_time"),
                 action="created",
                 date=raw_event["start_time"],
             )
@@ -302,14 +385,26 @@ async def get_user_activity(
         .limit(limit)
     )
     attendance_records = await attendance_cursor.to_list(length=limit)
+    latest_attendance_records: list[dict[str, Any]] = []
+    seen_event_ids: set[int] = set()
+    for raw_att in reversed(attendance_records):
+        event_id = raw_att["event_id"]
+        if event_id in seen_event_ids:
+            continue
+        seen_event_ids.add(event_id)
+        latest_attendance_records.append(raw_att)
+    latest_attendance_records.reverse()
 
-    event_ids = list({r["event_id"] for r in attendance_records})
+    event_ids = list({r["event_id"] for r in latest_attendance_records})
     events_by_id: dict[int, dict[str, Any]] = {}
     if event_ids:
         async for ev in db["events"].find({"id": {"$in": event_ids}}):
             events_by_id[ev["id"]] = ev
 
-    for raw_att in attendance_records:
+    for raw_att in latest_attendance_records:
+        if raw_att["status"] == "cancelled":
+            continue
+
         event_raw = events_by_id.get(raw_att["event_id"])
         if event_raw is None:
             continue
@@ -324,6 +419,7 @@ async def get_user_activity(
                 event_id=event_raw["id"],
                 event_title=event_raw["title"],
                 event_image_url=event_raw.get("image_url"),
+                event_end_time=event_raw.get("end_time"),
                 action=action,
                 date=date,
             )

@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ApiError, apiFetch } from "@/lib/api";
+import { buildNextPath } from "@/lib/auth-redirect";
 
 export interface AuthUser {
   id: number;
@@ -38,8 +39,10 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       if (error instanceof ApiError && error.status === 401) {
         return null;
       }
-      currentUserPromise = null;
       throw error;
+    })
+    .finally(() => {
+      currentUserPromise = null;
     });
 
   return currentUserPromise;
@@ -100,7 +103,13 @@ export function useRequireAuth(): {
   useEffect(() => {
     if (!auth.loading && !auth.user) {
       const params = new URLSearchParams();
-      params.set("next", pathname || "/");
+      const search = window.location.search;
+      const nextPath = buildNextPath(
+        pathname,
+        search,
+        window.location.hash,
+      );
+      params.set("next", nextPath);
       router.replace(`/signin?${params.toString()}`);
     }
   }, [auth.loading, auth.user, pathname, router]);

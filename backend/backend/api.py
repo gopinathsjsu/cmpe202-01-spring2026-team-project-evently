@@ -33,6 +33,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     app = FastAPI(title="Evently API", lifespan=lifespan)
     app.state.frontend_settings = build_frontend_settings(getenv("FRONTEND_URL"))
+    frontend_origin = app.state.frontend_settings.primary_origin or ""
+    session_https_only = frontend_origin.startswith("https://")
 
     app.add_middleware(
         CORSMiddleware,
@@ -47,6 +49,9 @@ def create_app() -> FastAPI:
     app.add_middleware(
         middleware_class=SessionMiddleware,
         secret_key=session_secret_key,
+        https_only=session_https_only,
+        same_site="lax",
+        session_cookie="evently_session",
     )
 
     app.include_router(events_router, prefix="/events", tags=["events"])

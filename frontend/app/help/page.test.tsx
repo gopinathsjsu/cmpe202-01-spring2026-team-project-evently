@@ -1,10 +1,31 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("next/navigation", () => ({
+  usePathname: vi.fn(),
+}));
+
+vi.mock("@/lib/auth", () => ({
+  useAuth: vi.fn(),
+}));
+
+import { usePathname } from "next/navigation";
+
+import { useAuth } from "@/lib/auth";
 import HelpPage from "./page";
+
+const mockedUsePathname = vi.mocked(usePathname);
+const mockedUseAuth = vi.mocked(useAuth);
 
 describe("HelpPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockedUsePathname.mockReturnValue("/help");
+    mockedUseAuth.mockReturnValue({
+      user: null,
+      loading: false,
+      error: null,
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -54,7 +75,7 @@ describe("HelpPage", () => {
       screen.getByText("How do I create an event?"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("How do I purchase tickets?"),
+      screen.getByText("How do I register for an event?"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("What payment methods are accepted?"),
@@ -162,10 +183,10 @@ describe("HelpPage", () => {
     render(<HelpPage />);
     const searchInput = screen.getByPlaceholderText("Search FAQ...");
 
-    fireEvent.change(searchInput, { target: { value: "refund" } });
+    fireEvent.change(searchInput, { target: { value: "cancel" } });
 
     expect(
-      screen.getByText("How do I cancel or refund tickets?"),
+      screen.getByText("How do I cancel my registration?"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("How do I create an event?"),
@@ -302,8 +323,9 @@ describe("HelpPage", () => {
     render(<HelpPage />);
     const browseLinks = screen.getAllByRole("link", { name: "Browse Events" });
     expect(browseLinks.some((el) => el.getAttribute("href") === "/")).toBe(true);
-    const createLink = screen.getByRole("link", { name: "Create Event" });
-    expect(createLink).toHaveAttribute("href", "/create");
+    expect(
+      screen.getByRole("button", { name: "Create Event" }),
+    ).toBeInTheDocument();
   });
 
   it("has a help center link in the footer", () => {

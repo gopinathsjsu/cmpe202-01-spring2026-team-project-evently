@@ -4,11 +4,18 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
-from pymongo import ASCENDING, DESCENDING
+from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.db import get_db
-from backend.models.event import Event, EventCategory, EventScheduleEntry, Location
+from backend.models.attendance import AttendanceStatus
+from backend.models.event import (
+    Event,
+    EventCategory,
+    EventScheduleEntry,
+    EventStatus,
+    Location,
+)
 from backend.models.event_favorite import EventFavorite
 from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
@@ -107,6 +114,56 @@ class FavoriteRemoveResponse(BaseModel):
     status: Literal["unfavorited"] = "unfavorited"
 
 
+class AttendanceStatusResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["going", "checked_in", "cancelled"] | None
+
+
+class AttendanceRegisterResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["going"] = "going"
+
+
+class AttendanceCancelResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["cancelled"] = "cancelled"
+
+
+class PendingEventListItem(BaseModel):
+    id: int
+    title: str
+    about: str
+    organizer_user_id: int
+    price: float
+    total_capacity: int
+    start_time: datetime
+    end_time: datetime
+    category: EventCategory
+    status: Literal["pending"]
+    is_online: bool
+    location: LocationSummary
+
+    @classmethod
+    def from_event(cls, event: Event) -> "PendingEventListItem":
+        return cls(
+            id=event.id,
+            title=event.title,
+            about=event.about,
+            organizer_user_id=event.organizer_user_id,
+            price=event.price,
+            total_capacity=event.total_capacity,
+            start_time=event.start_time,
+            end_time=event.end_time,
+            category=event.category,
+            status="pending",
+            is_online=event.is_online,
+            location=LocationSummary.from_location(event.location),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Request schemas
 # ---------------------------------------------------------------------------
@@ -152,8 +209,26 @@ class EventCreate(BaseModel):
 
 
 async def _next_event_id(db: AsyncDatabase[dict[str, Any]]) -> int:
-    last = await db["events"].find_one(sort=[("id", DESCENDING)])
-    return (last["id"] + 1) if last else 1
+    if await db["events"].count_documents({}, limit=1) == 0:
+        await db["counters"].delete_one({"_id": "events"})
+    elif await db["counters"].find_one({"_id": "events"}) is None:
+        latest = await db["events"].find_one({}, sort=[("id", DESCENDING)])
+        next_seq = int(latest["id"]) if latest is not None else 0
+        await db["counters"].update_one(
+            {"_id": "events"},
+            {"$set": {"seq": next_seq}},
+            upsert=True,
+        )
+
+    counter = await db["counters"].find_one_and_update(
+        {"_id": "events"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    if counter is None:
+        raise HTTPException(status_code=500, detail="Failed to allocate event ID")
+    return int(counter["seq"])
 
 
 async def _attending_counts(
@@ -173,6 +248,43 @@ async def _attending_counts(
     return counts
 
 
+async def _ensure_registered_count(
+    db: AsyncDatabase[dict[str, Any]], event_id: int
+) -> None:
+    raw_event = await db["events"].find_one(
+        {"id": event_id}, {"_id": 1, "registered_count": 1}
+    )
+    if raw_event is None or "registered_count" in raw_event:
+        return
+
+    active_count = await db["attendance"].count_documents(
+        {"event_id": event_id, "status": {"$ne": AttendanceStatus.Cancelled.value}}
+    )
+    await db["events"].update_one(
+        {"_id": raw_event["_id"], "registered_count": {"$exists": False}},
+        {"$set": {"registered_count": active_count}},
+    )
+
+
+async def _reserve_event_slot(db: AsyncDatabase[dict[str, Any]], event_id: int) -> bool:
+    reserved = await db["events"].find_one_and_update(
+        {
+            "id": event_id,
+            "$expr": {"$lt": ["$registered_count", "$total_capacity"]},
+        },
+        {"$inc": {"registered_count": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return reserved is not None
+
+
+async def _release_event_slot(db: AsyncDatabase[dict[str, Any]], event_id: int) -> None:
+    await db["events"].update_one(
+        {"id": event_id, "registered_count": {"$gt": 0}},
+        {"$inc": {"registered_count": -1}},
+    )
+
+
 def _resolve_date_preset(preset: str) -> tuple[datetime, datetime]:
     now = datetime.now(tz=UTC)
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -188,6 +300,21 @@ def _resolve_date_preset(preset: str) -> tuple[datetime, datetime]:
     else:
         end = first.replace(month=first.month + 1)
     return first, end
+
+
+def _require_admin(current_user: AuthSessionUser) -> None:
+    if "admin" not in current_user.roles:
+        raise HTTPException(status_code=403, detail="Administrator access required")
+
+
+def _public_event_visibility_filter(event_id: int) -> dict[str, Any]:
+    return {
+        "id": event_id,
+        "$or": [
+            {"status": EventStatus.Approved.value},
+            {"status": {"$exists": False}},
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -243,40 +370,57 @@ async def list_events(
 ) -> PaginatedEvents:
     """List events with filtering, search, sorting, and pagination."""
     collection = db["events"]
-    filters: dict[str, object] = {}
+    conditions: list[dict[str, object]] = [
+        {
+            "$or": [
+                {"status": EventStatus.Approved.value},
+                {"status": {"$exists": False}},
+            ]
+        }
+    ]
 
     if q:
         escaped_q = re.escape(q)
-        filters["$or"] = [
-            {"title": {"$regex": escaped_q, "$options": "i"}},
-            {"about": {"$regex": escaped_q, "$options": "i"}},
-        ]
+        conditions.append(
+            {
+                "$or": [
+                    {"title": {"$regex": escaped_q, "$options": "i"}},
+                    {"about": {"$regex": escaped_q, "$options": "i"}},
+                ]
+            }
+        )
 
     if category is not None:
-        filters["category"] = category.value
+        conditions.append({"category": category.value})
 
     if city is not None:
         escaped_city = re.escape(city)
-        filters["location.city"] = {"$regex": f"^{escaped_city}$", "$options": "i"}
+        conditions.append(
+            {"location.city": {"$regex": f"^{escaped_city}$", "$options": "i"}}
+        )
 
     if is_online is not None:
-        filters["is_online"] = is_online
+        conditions.append({"is_online": is_online})
 
     if price_type == "free":
-        filters["price"] = 0.0
+        conditions.append({"price": 0.0})
     elif price_type == "paid":
-        filters["price"] = {"$gt": 0}
+        conditions.append({"price": {"$gt": 0}})
 
     if date_preset:
         preset_from, preset_to = _resolve_date_preset(date_preset)
-        filters["start_time"] = {"$gte": preset_from, "$lte": preset_to}
+        conditions.append({"start_time": {"$gte": preset_from, "$lt": preset_to}})
     elif start_from or start_to:
         time_filter: dict[str, datetime] = {}
         if start_from is not None:
             time_filter["$gte"] = start_from
         if start_to is not None:
             time_filter["$lte"] = start_to
-        filters["start_time"] = time_filter
+        conditions.append({"start_time": time_filter})
+
+    filters: dict[str, object] = (
+        conditions[0] if len(conditions) == 1 else {"$and": conditions}
+    )
 
     sort_direction = ASCENDING if sort_order == "asc" else DESCENDING
     sort_key = {"start_time": "start_time", "price": "price", "title": "title"}[sort_by]
@@ -304,6 +448,20 @@ async def list_events(
     return PaginatedEvents(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/pending", response_model=list[PendingEventListItem])
+async def list_pending_events(
+    db: DbDep, current_user: AuthUserDep
+) -> list[PendingEventListItem]:
+    _require_admin(current_user)
+    raw_events = await (
+        db["events"]
+        .find({"status": EventStatus.Pending.value})
+        .sort("start_time", ASCENDING)
+        .to_list(length=None)
+    )
+    return [PendingEventListItem.from_event(Event(**raw)) for raw in raw_events]
+
+
 # ---------------------------------------------------------------------------
 # GET /events/{event_id}  — Single event detail
 # ---------------------------------------------------------------------------
@@ -312,7 +470,7 @@ async def list_events(
 @router.get("/{event_id}", response_model=EventDetail)
 async def get_event(db: DbDep, event_id: int) -> EventDetail:
     """Retrieve full details for a single event."""
-    raw = await db["events"].find_one({"id": event_id})
+    raw = await db["events"].find_one(_public_event_visibility_filter(event_id))
     if raw is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -325,6 +483,137 @@ async def get_event(db: DbDep, event_id: int) -> EventDetail:
     return EventDetail.from_event(
         event, attending_count=attending, favorites_count=favorites
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /events/{event_id}/attendance  — Current user's attendance status
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{event_id}/attendance", response_model=AttendanceStatusResponse)
+async def get_my_attendance(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> AttendanceStatusResponse:
+    """Return the authenticated user's attendance status for a given event."""
+    event = await db["events"].find_one(
+        _public_event_visibility_filter(event_id), {"_id": 1}
+    )
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    attendance = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": current_user.id},
+        sort=[("_id", DESCENDING)],
+    )
+
+    return AttendanceStatusResponse(
+        event_id=event_id,
+        user_id=current_user.id,
+        status=attendance["status"] if attendance is not None else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /events/{event_id}/attendance  — Register current user for an event
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{event_id}/attendance", response_model=AttendanceRegisterResponse)
+async def register_attendance(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> AttendanceRegisterResponse:
+    """Register the authenticated user for a given event."""
+    raw_event = await db["events"].find_one(_public_event_visibility_filter(event_id))
+    if raw_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw_event)
+    if event.organizer_user_id == current_user.id:
+        raise HTTPException(
+            status_code=400, detail="Organizers cannot register for their own events"
+        )
+
+    existing = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": current_user.id},
+        sort=[("_id", DESCENDING)],
+    )
+    if existing is not None and existing["status"] != AttendanceStatus.Cancelled.value:
+        return AttendanceRegisterResponse(event_id=event_id, user_id=current_user.id)
+
+    await _ensure_registered_count(db, event_id)
+    if not await _reserve_event_slot(db, event_id):
+        raise HTTPException(status_code=400, detail="This event is sold out")
+
+    try:
+        if existing is None:
+            await db["attendance"].insert_one(
+                {
+                    "event_id": event_id,
+                    "user_id": current_user.id,
+                    "status": AttendanceStatus.Going.value,
+                    "checked_in_at": None,
+                }
+            )
+        else:
+            result = await db["attendance"].update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": {
+                        "status": AttendanceStatus.Going.value,
+                        "checked_in_at": None,
+                    }
+                },
+            )
+            if result.matched_count != 1:
+                raise HTTPException(
+                    status_code=409, detail="Registration state changed"
+                )
+    except Exception:
+        await _release_event_slot(db, event_id)
+        raise
+
+    return AttendanceRegisterResponse(event_id=event_id, user_id=current_user.id)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /events/{event_id}/attendance  — Cancel current user's registration
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/{event_id}/attendance", response_model=AttendanceCancelResponse)
+async def cancel_attendance(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> AttendanceCancelResponse:
+    """Cancel the authenticated user's registration for a given event."""
+    event = await db["events"].find_one(
+        _public_event_visibility_filter(event_id), {"_id": 1}
+    )
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    existing = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": current_user.id},
+        sort=[("_id", DESCENDING)],
+    )
+    if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
+        raise HTTPException(status_code=404, detail="Registration not found")
+
+    result = await db["attendance"].update_one(
+        {"_id": existing["_id"]},
+        {
+            "$set": {
+                "status": AttendanceStatus.Cancelled.value,
+                "checked_in_at": None,
+            }
+        },
+    )
+    if result.matched_count != 1:
+        raise HTTPException(status_code=409, detail="Registration state changed")
+
+    await _ensure_registered_count(db, event_id)
+    await _release_event_slot(db, event_id)
+
+    return AttendanceCancelResponse(event_id=event_id, user_id=current_user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -349,15 +638,50 @@ async def create_event(
         start_time=body.start_time,
         end_time=body.end_time,
         category=body.category,
+        status=EventStatus.Pending,
         is_online=body.is_online,
         image_url=body.image_url,
         schedule=body.schedule,
         location=body.location,
     )
 
-    await db["events"].insert_one(event.model_dump())
+    await db["events"].insert_one({**event.model_dump(), "registered_count": 0})
 
     return EventDetail.from_event(event, attending_count=0, favorites_count=0)
+
+
+@router.post("/{event_id}/approve", response_model=PendingEventListItem)
+async def approve_event(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> PendingEventListItem:
+    _require_admin(current_user)
+    raw = await db["events"].find_one_and_update(
+        {"id": event_id, "status": EventStatus.Pending.value},
+        {"$set": {"status": EventStatus.Approved.value}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Pending event not found")
+    return PendingEventListItem.from_event(
+        Event(**raw).model_copy(update={"status": EventStatus.Pending})
+    )
+
+
+@router.post("/{event_id}/reject", response_model=PendingEventListItem)
+async def reject_event(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> PendingEventListItem:
+    _require_admin(current_user)
+    raw = await db["events"].find_one_and_update(
+        {"id": event_id, "status": EventStatus.Pending.value},
+        {"$set": {"status": EventStatus.Rejected.value}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Pending event not found")
+    return PendingEventListItem.from_event(
+        Event(**raw).model_copy(update={"status": EventStatus.Pending})
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +696,7 @@ async def add_favorite(
     db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> FavoriteAddResponse:
     """Add an event to a user's favorites (idempotent)."""
-    event = await db["events"].find_one({"id": event_id})
+    event = await db["events"].find_one(_public_event_visibility_filter(event_id))
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
@@ -399,7 +723,7 @@ async def remove_favorite(
     db: DbDep, event_id: int, current_user: AuthUserDep
 ) -> FavoriteRemoveResponse:
     """Remove an event from a user's favorites."""
-    event = await db["events"].find_one({"id": event_id})
+    event = await db["events"].find_one(_public_event_visibility_filter(event_id))
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 

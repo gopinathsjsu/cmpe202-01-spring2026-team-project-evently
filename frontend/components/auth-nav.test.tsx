@@ -33,7 +33,7 @@ describe("AuthNav", () => {
       "href",
       "/admin/events",
     );
-    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.getByText("Admin User")).toBeInTheDocument();
   });
 
   it("does not show the admin queue link for non-admin users", () => {
@@ -56,5 +56,25 @@ describe("AuthNav", () => {
     expect(
       screen.queryByRole("link", { name: "Admin Queue" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("falls back to the backend-provided name when first and last names are blank", () => {
+    mockedUseAuth.mockReturnValue({
+      user: {
+        id: 3,
+        email: "user@example.com",
+        first_name: "",
+        last_name: "",
+        name: "Pat Example",
+        roles: ["user"],
+        picture: null,
+      },
+      loading: false,
+      error: null,
+    });
+
+    render(<AuthNav />);
+
+    expect(screen.getByText("Pat Example")).toBeInTheDocument();
   });
 });

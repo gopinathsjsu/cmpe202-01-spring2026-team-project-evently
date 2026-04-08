@@ -1,7 +1,9 @@
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
 import type { EventDetail, UserDetail } from "@/lib/types";
+import { RegistrationCard } from "./registration-card";
 import { ShareButtons } from "./share-buttons";
 
 // ---------------------------------------------------------------------------
@@ -22,11 +24,6 @@ function formatTime(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function formatPrice(price: number): string {
-  if (price === 0) return "Free";
-  return `$${price.toFixed(2)}`;
 }
 
 function buildGoogleCalendarUrl(event: EventDetail): string {
@@ -88,9 +85,11 @@ export default async function EventDetailPage({
             {/* Banner image */}
             <div className="relative aspect-[16/7] w-full overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800">
               {event.image_url ? (
-                <img
+                <Image
                   src={event.image_url}
                   alt={event.title}
+                  fill
+                  sizes="(min-width: 1024px) 896px, 100vw"
                   className="h-full w-full object-cover"
                 />
               ) : (
@@ -197,10 +196,10 @@ export default async function EventDetailPage({
 
           {/* ── Right sidebar ────────────────────────────────────── */}
           <aside className="space-y-6 lg:sticky lg:top-8 lg:self-start">
-            <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="rounded-xl border border-zinc-200 bg-white p-6 text-zinc-900 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100">
               {/* Date */}
               <div className="flex items-start gap-3">
-                <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 fill-none stroke-current" strokeWidth={2}>
+                <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 fill-none stroke-current text-zinc-700 dark:text-zinc-200" strokeWidth={2}>
                   <rect x="3" y="4" width="18" height="18" rx="2" />
                   <line x1="16" y1="2" x2="16" y2="6" />
                   <line x1="8" y1="2" x2="8" y2="6" />
@@ -208,19 +207,19 @@ export default async function EventDetailPage({
                 </svg>
                 <div className="text-sm">
                   <p className="text-xs font-medium text-zinc-400">Date</p>
-                  <p className="font-medium">{formatDate(event.start_time)}</p>
+                  <p className="font-medium text-zinc-900 dark:text-zinc-100">{formatDate(event.start_time)}</p>
                 </div>
               </div>
 
               {/* Time */}
               <div className="mt-4 flex items-start gap-3">
-                <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 fill-none stroke-current" strokeWidth={2}>
+                <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 fill-none stroke-current text-zinc-700 dark:text-zinc-200" strokeWidth={2}>
                   <circle cx="12" cy="12" r="10" />
                   <polyline points="12 6 12 12 16 14" />
                 </svg>
                 <div className="text-sm">
                   <p className="text-xs font-medium text-zinc-400">Time</p>
-                  <p className="font-medium">
+                  <p className="font-medium text-zinc-900 dark:text-zinc-100">
                     {formatTime(event.start_time)} - {formatTime(event.end_time)}
                   </p>
                 </div>
@@ -228,7 +227,7 @@ export default async function EventDetailPage({
 
               {/* Capacity */}
               <div className="mt-4 flex items-start gap-3">
-                <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 fill-none stroke-current" strokeWidth={2}>
+                <svg viewBox="0 0 24 24" className="mt-0.5 h-5 w-5 shrink-0 fill-none stroke-current text-zinc-700 dark:text-zinc-200" strokeWidth={2}>
                   <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                   <circle cx="9" cy="7" r="4" />
                   <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -236,47 +235,24 @@ export default async function EventDetailPage({
                 </svg>
                 <div className="text-sm">
                   <p className="text-xs font-medium text-zinc-400">Capacity</p>
-                  <p className="font-medium">
+                  <p className="font-medium text-zinc-900 dark:text-zinc-100">
                     {spotsLeft > 0 ? `${spotsLeft} spots left` : "Sold out"}
                   </p>
                 </div>
               </div>
 
-              {/* Price */}
-              <div className="mt-5 flex items-center justify-between border-t border-zinc-200 pt-5 dark:border-zinc-700">
-                <span className="text-sm text-zinc-500">Price</span>
-                <span className="text-xl font-bold">{formatPrice(event.price)}</span>
-              </div>
-
-              {/* Register */}
-              <button
-                type="button"
-                disabled={spotsLeft <= 0}
-                className="mt-5 w-full rounded-full bg-black py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-              >
-                {spotsLeft > 0 ? "Register Now" : "Sold Out"}
-              </button>
-
-              {/* Add to Calendar */}
-              <a
-                href={buildGoogleCalendarUrl(event)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-zinc-200 py-3 text-sm font-semibold transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth={2}>
-                  <rect x="3" y="4" width="18" height="18" rx="2" />
-                  <line x1="16" y1="2" x2="16" y2="6" />
-                  <line x1="8" y1="2" x2="8" y2="6" />
-                  <line x1="3" y1="10" x2="21" y2="10" />
-                </svg>
-                Add to Calendar
-              </a>
+              <RegistrationCard
+                addToCalendarUrl={buildGoogleCalendarUrl(event)}
+                eventId={event.id}
+                organizerUserId={event.organizer_user_id}
+                price={event.price}
+                spotsLeft={spotsLeft}
+              />
             </div>
 
             {/* Share */}
-            <div className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-              <h4 className="mb-3 text-sm font-semibold">Share Event</h4>
+            <div className="rounded-xl border border-zinc-200 bg-white p-6 text-zinc-900 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100">
+              <h4 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">Share Event</h4>
               <ShareButtons />
             </div>
           </aside>

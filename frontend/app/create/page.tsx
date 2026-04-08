@@ -1,16 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { AuthNav } from "@/components/auth-nav";
+import Navbar from "@/app/components/navbar";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
+import { buildCreateEventPayload } from "@/lib/create-event-payload";
 import type {
   EventCategory,
-  EventCreatePayload,
   EventDetail,
-  EventScheduleEntry,
 } from "@/lib/types";
 
 const CATEGORIES: EventCategory[] = [
@@ -43,7 +43,13 @@ export default function CreateEventPage() {
   const [startTime, setStartTime] = useState("");
   const [endDate, setEndDate] = useState("");
   const [endTime, setEndTime] = useState("");
-  const [location, setLocation] = useState("");
+  const [venueName, setVenueName] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [latitude, setLatitude] = useState("");
+  const [longitude, setLongitude] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,27 +93,39 @@ export default function CreateEventPage() {
       return;
     }
 
-    const payload: EventCreatePayload = {
-      title: title.trim(),
-      about: "",
-      price: 0,
-      total_capacity: 100,
-      start_time: startISO,
-      end_time: endISO,
+    if (
+      !address.trim() ||
+      !city.trim() ||
+      !state.trim() ||
+      !zipCode.trim() ||
+      !latitude.trim() ||
+      !longitude.trim()
+    ) {
+      setError("Please complete the full location details.");
+      return;
+    }
+
+    const payload = buildCreateEventPayload({
+      title,
       category,
-      is_online: false,
-      image_url: null,
-      schedule: [] as EventScheduleEntry[],
-      location: {
-        longitude: 0,
-        latitude: 0,
-        venue_name: null,
-        address: location.trim(),
-        city: "San Jose",
-        state: "CA",
-        zip_code: "00000",
-      },
-    };
+      startISO,
+      endISO,
+      venueName,
+      address,
+      city,
+      state,
+      zipCode,
+      latitude,
+      longitude,
+    });
+
+    if (
+      Number.isNaN(payload.location.latitude) ||
+      Number.isNaN(payload.location.longitude)
+    ) {
+      setError("Latitude and longitude must be valid numbers.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -141,22 +159,7 @@ export default function CreateEventPage() {
 
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-8">
-            <a href="/" className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded bg-black text-white text-sm font-bold">E</span>
-              <span className="text-lg font-semibold">Evently</span>
-            </a>
-            <nav className="hidden items-center gap-6 md:flex">
-              <a href="/" className="text-sm font-medium text-gray-700 hover:text-black">Browse Events</a>
-              <a href="/create" className="text-sm font-medium text-black">Create Event</a>
-            </nav>
-          </div>
-          <AuthNav />
-        </div>
-      </header>
+      <Navbar />
 
       <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
         <h1 className="text-3xl font-bold tracking-tight">Create New Event</h1>
@@ -284,18 +287,110 @@ export default function CreateEventPage() {
               </div>
 
               <div>
-                <label htmlFor="location" className={labelClass}>
-                  Location*
+                <label htmlFor="venue-name" className={labelClass}>
+                  Venue Name
                 </label>
                 <input
-                  id="location"
+                  id="venue-name"
+                  disabled={authLoading || !user}
+                  className={inputClass}
+                  value={venueName}
+                  onChange={(e) => setVenueName(e.target.value)}
+                  placeholder="Optional venue name"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="address" className={labelClass}>
+                  Street Address*
+                </label>
+                <input
+                  id="address"
                   required
                   disabled={authLoading || !user}
                   className={inputClass}
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Enter venue address"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="123 Main St"
                 />
+              </div>
+
+              <div className="grid gap-5 sm:grid-cols-3">
+                <div>
+                  <label htmlFor="city" className={labelClass}>
+                    City*
+                  </label>
+                  <input
+                    id="city"
+                    required
+                    disabled={authLoading || !user}
+                    className={inputClass}
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="San Jose"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="state" className={labelClass}>
+                    State*
+                  </label>
+                  <input
+                    id="state"
+                    required
+                    disabled={authLoading || !user}
+                    className={inputClass}
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    placeholder="CA"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="zip-code" className={labelClass}>
+                    ZIP Code*
+                  </label>
+                  <input
+                    id="zip-code"
+                    required
+                    disabled={authLoading || !user}
+                    className={inputClass}
+                    value={zipCode}
+                    onChange={(e) => setZipCode(e.target.value)}
+                    placeholder="95112"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="latitude" className={labelClass}>
+                    Latitude*
+                  </label>
+                  <input
+                    id="latitude"
+                    required
+                    inputMode="decimal"
+                    disabled={authLoading || !user}
+                    className={inputClass}
+                    value={latitude}
+                    onChange={(e) => setLatitude(e.target.value)}
+                    placeholder="37.3382"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="longitude" className={labelClass}>
+                    Longitude*
+                  </label>
+                  <input
+                    id="longitude"
+                    required
+                    inputMode="decimal"
+                    disabled={authLoading || !user}
+                    className={inputClass}
+                    value={longitude}
+                    onChange={(e) => setLongitude(e.target.value)}
+                    placeholder="-121.8863"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -309,12 +404,12 @@ export default function CreateEventPage() {
             >
               {submitting ? "Publishing…" : "Publish Event"}
             </button>
-            <a
+            <Link
               href="/"
               className="text-sm font-medium text-gray-600 hover:text-black"
             >
               Cancel
-            </a>
+            </Link>
           </div>
         </form>
       </main>

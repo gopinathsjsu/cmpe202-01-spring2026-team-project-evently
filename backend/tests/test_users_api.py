@@ -69,9 +69,9 @@ async def test_get_user_detail(
     assert body["username"] == "testuser"
     assert body["first_name"] == "Test"
     assert body["last_name"] == "User"
-    assert body["email"] == "testuser@example.com"
-    assert body["phone_number"] == "+1234567890"
-    assert body["roles"] == ["user"]
+    assert "email" not in body
+    assert "phone_number" not in body
+    assert "roles" not in body
     assert body["profile"]["bio"] == "Test bio"
     assert body["profile"]["location"] == "San Francisco"
     assert body["profile"]["twitter_handle"] == "testuser"
@@ -210,7 +210,7 @@ async def test_get_user_with_admin_role(
         resp = await client.get("/users/1")
 
     body = resp.json()
-    assert "admin" in body["roles"]
+    assert "roles" not in body
 
 
 @pytest.mark.asyncio
@@ -547,7 +547,7 @@ async def test_get_user_activity(
         }
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 
@@ -559,6 +559,7 @@ async def test_get_user_activity(
     actions = {item["action"] for item in items}
     assert "created" in actions
     assert "attended" in actions
+    assert all("event_end_time" in item for item in items)
 
 
 @pytest.mark.asyncio
@@ -568,7 +569,7 @@ async def test_get_user_activity_empty(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 
@@ -583,7 +584,22 @@ async def test_get_user_activity_not_found(
 ) -> None:
     await _clean(db)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user(user_id=9999))
     async with client:
         resp = await client.get("/users/9999/activity")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_user_activity_forbidden_for_other_user(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+
+    _, client = _make_client(db, auth_user=_auth_user(user_id=2))
+    async with client:
+        resp = await client.get("/users/1/activity")
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "You can only modify your own user."

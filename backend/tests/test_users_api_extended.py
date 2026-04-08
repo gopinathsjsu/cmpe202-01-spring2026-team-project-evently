@@ -1,5 +1,6 @@
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,6 +9,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
 from backend.db import get_db
+from backend.routes import users as user_routes
 from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 
@@ -90,6 +92,71 @@ async def test_update_user_email(
 
     assert resp.status_code == 200
     assert resp.json()["email"] == "new@example.com"
+
+
+@pytest.mark.asyncio
+async def test_update_user_rejects_duplicate_email(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_many(
+        [
+            user_data,
+            {
+                **user_data,
+                "id": 2,
+                "username": "otheruser",
+                "email": "other@example.com",
+            },
+        ]
+    )
+
+    _, client = _make_client(db, auth_user=_auth_user())
+    async with client:
+        resp = await client.patch("/users/1", json={"email": "other@example.com"})
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Email is already in use"
+
+
+@pytest.mark.asyncio
+async def test_update_user_rejects_duplicate_username(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_many(
+        [
+            user_data,
+            {
+                **user_data,
+                "id": 2,
+                "username": "otheruser",
+                "email": "other@example.com",
+            },
+        ]
+    )
+
+    _, client = _make_client(db, auth_user=_auth_user())
+    async with client:
+        resp = await client.patch("/users/1", json={"username": "otheruser"})
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Username is already in use"
+
+
+@pytest.mark.asyncio
+async def test_update_user_normalizes_email_case(
+    db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+
+    _, client = _make_client(db, auth_user=_auth_user())
+    async with client:
+        resp = await client.patch("/users/1", json={"email": "NewCase@Example.COM"})
+
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "newcase@example.com"
 
 
 @pytest.mark.asyncio
@@ -204,6 +271,42 @@ async def test_upload_photo_replaces_old(
 
 
 @pytest.mark.asyncio
+async def test_upload_photo_invalid_extension_keeps_existing_photo(
+    db: AsyncDatabase[dict[str, Any]],
+    user_data: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    await _clean(db)
+    monkeypatched_user = {
+        **user_data,
+        "profile_photo_url": "/uploads/existing.png",
+    }
+    await db["users"].insert_one(monkeypatched_user)
+    old_file = tmp_path / "existing.png"
+    old_file.write_bytes(b"existing")
+
+    original_upload_dir = user_routes.UPLOAD_DIR
+    user_routes.UPLOAD_DIR = str(tmp_path)
+    try:
+        fake_image = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+
+        _, client = _make_client(db, auth_user=_auth_user())
+        async with client:
+            resp = await client.post(
+                "/users/1/photo",
+                files={"file": ("evil.html", fake_image, "image/png")},
+            )
+    finally:
+        user_routes.UPLOAD_DIR = original_upload_dir
+
+    assert resp.status_code == 400
+    assert old_file.exists()
+    saved_user = await db["users"].find_one({"id": 1})
+    assert saved_user is not None
+    assert saved_user["profile_photo_url"] == "/uploads/existing.png"
+
+
+@pytest.mark.asyncio
 async def test_upload_photo_jpeg(
     db: AsyncDatabase[dict[str, Any]], user_data: dict[str, Any]
 ) -> None:
@@ -263,7 +366,7 @@ async def test_activity_custom_limit(
     ]
     await db["events"].insert_many(events)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity", params={"limit": 3})
 
@@ -278,7 +381,7 @@ async def test_activity_limit_zero_rejected(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity", params={"limit": 0})
 
@@ -292,7 +395,7 @@ async def test_activity_limit_exceeds_max_rejected(
     await _clean(db)
     await db["users"].insert_one(user_data)
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity", params={"limit": 51})
 
@@ -335,7 +438,7 @@ async def test_activity_with_registered_and_attended(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 
@@ -375,7 +478,7 @@ async def test_activity_sorts_by_date_desc(
         ]
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 
@@ -401,7 +504,71 @@ async def test_activity_orphaned_attendance_skipped(
         }
     )
 
-    _, client = _make_client(db)
+    _, client = _make_client(db, auth_user=_auth_user())
+    async with client:
+        resp = await client.get("/users/1/activity")
+
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_activity_cancelled_attendance_skipped(
+    db: AsyncDatabase[dict[str, Any]],
+    user_data: dict[str, Any],
+    event_data: dict[str, Any],
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+    await db["events"].insert_one(
+        {**event_data, "id": 1, "organizer_user_id": 2, "title": "Cancelled Event"}
+    )
+    await db["attendance"].insert_one(
+        {
+            "event_id": 1,
+            "user_id": 1,
+            "status": "cancelled",
+            "checked_in_at": None,
+        }
+    )
+
+    _, client = _make_client(db, auth_user=_auth_user())
+    async with client:
+        resp = await client.get("/users/1/activity")
+
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_activity_uses_latest_attendance_per_event(
+    db: AsyncDatabase[dict[str, Any]],
+    user_data: dict[str, Any],
+    event_data: dict[str, Any],
+) -> None:
+    await _clean(db)
+    await db["users"].insert_one(user_data)
+    await db["events"].insert_one(
+        {**event_data, "id": 1, "organizer_user_id": 2, "title": "Repeated Event"}
+    )
+    await db["attendance"].insert_many(
+        [
+            {
+                "event_id": 1,
+                "user_id": 1,
+                "status": "going",
+                "checked_in_at": None,
+            },
+            {
+                "event_id": 1,
+                "user_id": 1,
+                "status": "cancelled",
+                "checked_in_at": None,
+            },
+        ]
+    )
+
+    _, client = _make_client(db, auth_user=_auth_user())
     async with client:
         resp = await client.get("/users/1/activity")
 

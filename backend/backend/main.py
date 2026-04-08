@@ -1,4 +1,5 @@
 import logging
+import os
 from collections.abc import Sequence
 
 import uvicorn
@@ -8,6 +9,7 @@ from .cli import parse_args
 
 def cli(argv: Sequence[str] | None = None) -> None:
     cli_args = parse_args(argv)
+    os.environ["DATABASE_URL"] = cli_args.database_url
 
     logging.basicConfig(
         format="[%(levelname)s][%(asctime)s] %(message)s",

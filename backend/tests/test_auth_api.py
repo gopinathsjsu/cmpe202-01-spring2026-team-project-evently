@@ -49,6 +49,27 @@ class _FakeCollection:
     async def insert_one(self, doc: dict[str, object]) -> None:
         self._docs.append(doc)
 
+    async def count_documents(
+        self, query: dict[str, object] | None = None, *, limit: int | None = None
+    ) -> int:
+        if not query:
+            count = len(self._docs)
+        else:
+            count = sum(
+                1
+                for doc in self._docs
+                if all(doc.get(key) == value for key, value in query.items())
+            )
+        if limit is not None:
+            return min(count, limit)
+        return count
+
+    async def delete_one(self, query: dict[str, object]) -> None:
+        for idx, doc in enumerate(self._docs):
+            if all(doc.get(key) == value for key, value in query.items()):
+                self._docs.pop(idx)
+                return
+
     async def update_one(
         self, query: dict[str, object], update: dict[str, dict[str, object]]
     ) -> None:
@@ -58,6 +79,27 @@ class _FakeCollection:
 
         for key, value in update.get("$set", {}).items():
             doc[key] = value
+
+    async def find_one_and_update(
+        self,
+        query: dict[str, object],
+        update: dict[str, dict[str, object]],
+        *,
+        upsert: bool = False,
+        return_document: object | None = None,
+    ) -> dict[str, object] | None:
+        doc = await self.find_one(query)
+        if doc is None:
+            if not upsert:
+                return None
+            doc = dict(query)
+            self._docs.append(doc)
+
+        for key, value in update.get("$inc", {}).items():
+            doc[key] = cast(int, doc.get(key, 0)) + cast(int, value)
+        for key, value in update.get("$set", {}).items():
+            doc[key] = value
+        return doc
 
 
 class _FakeDb:
@@ -75,7 +117,7 @@ def clear_oauth_cache() -> Iterator[None]:
     auth_routes.get_oauth.cache_clear()
 
 
-def _make_client() -> tuple[FastAPI, AsyncClient]:
+def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
     app = create_app()
     fake_db = _FakeDb()
     app.state.db = fake_db
@@ -107,7 +149,7 @@ def _make_client() -> tuple[FastAPI, AsyncClient]:
         return await read_session(request)
 
     transport = ASGITransport(app=app)
-    client = AsyncClient(transport=transport, base_url="http://test")
+    client = AsyncClient(transport=transport, base_url=base_url)
     return app, client
 
 
@@ -118,7 +160,7 @@ async def test_login_returns_503_when_oauth_not_configured(
     monkeypatch.delenv("OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("OAUTH_CLIENT_SECRET", raising=False)
 
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     async with client:
         resp = await client.get("/auth/login")
 
@@ -128,7 +170,7 @@ async def test_login_returns_503_when_oauth_not_configured(
 
 @pytest.mark.asyncio
 async def test_login_redirects_to_google_and_uses_callback_url() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     redirect = RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
     authorize_redirect = AsyncMock(return_value=redirect)
     google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
@@ -142,12 +184,15 @@ async def test_login_redirects_to_google_and_uses_callback_url() -> None:
     assert resp.headers["location"] == "https://accounts.google.com/o/oauth2/auth"
     assert authorize_redirect.await_count == 1
     assert await_args is not None
-    assert await_args.args[1] == "http://test/auth/callback"
+    assert await_args.args[1] == "https://test/auth/callback"
+    set_cookie = resp.headers.get("set-cookie", "")
+    assert "evently_session=" in set_cookie
+    assert "samesite=lax" in set_cookie
 
 
 @pytest.mark.asyncio
 async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     authorize_redirect = AsyncMock(return_value="not-a-redirect")
     google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
 
@@ -161,7 +206,7 @@ async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
 
 @pytest.mark.asyncio
 async def test_callback_stores_userinfo_in_session() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     userinfo = {
         "sub": "google-oauth2|123",
         "email": "user@example.com",
@@ -185,8 +230,82 @@ async def test_callback_stores_userinfo_in_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_callback_reuses_existing_user_with_case_insensitive_email() -> None:
+    app, client = _make_client(base_url="https://test")
+    await app.state.db["users"].insert_one(
+        {
+            "id": 7,
+            "username": "existing",
+            "first_name": "Existing",
+            "last_name": "User",
+            "email": "user@example.com",
+            "roles": ["user"],
+            "profile": {},
+        }
+    )
+    userinfo = {
+        "sub": "google-oauth2|123",
+        "email": "User@Example.com",
+        "name": "Existing User",
+    }
+    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
+
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
+        async with client:
+            resp = await client.get("/auth/callback")
+
+    assert resp.status_code == 307
+    users = app.state.db["users"]._docs
+    assert len(users) == 1
+    assert users[0]["id"] == 7
+    assert users[0]["first_name"] == "Existing"
+    assert users[0]["last_name"] == "User"
+
+
+@pytest.mark.asyncio
+async def test_callback_refreshes_existing_user_name_and_picture_from_google() -> None:
+    app, client = _make_client(base_url="https://test")
+    await app.state.db["users"].insert_one(
+        {
+            "id": 7,
+            "username": "existing",
+            "first_name": "Old",
+            "last_name": "Name",
+            "email": "user@example.com",
+            "roles": ["user"],
+            "profile_photo_url": "https://example.com/old.png",
+            "profile": {},
+        }
+    )
+    userinfo = {
+        "sub": "google-oauth2|123",
+        "email": "user@example.com",
+        "given_name": "Fresh",
+        "family_name": "User",
+        "picture": "https://example.com/new.png",
+    }
+    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
+
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
+        async with client:
+            callback_resp = await client.get("/auth/callback")
+            session_resp = await client.get("/auth/session")
+
+    updated_user = await app.state.db["users"].find_one({"id": 7})
+
+    assert callback_resp.status_code == 307
+    assert updated_user is not None
+    assert updated_user["first_name"] == "Fresh"
+    assert updated_user["last_name"] == "User"
+    assert updated_user["profile_photo_url"] == "https://example.com/new.png"
+    assert session_resp.json()["user"]["name"] == "Fresh User"
+
+
+@pytest.mark.asyncio
 async def test_callback_returns_400_when_oauth_fails() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     authorize_access_token = AsyncMock(
         side_effect=OAuthError(error="access_denied", description="Denied")
     )
@@ -313,7 +432,7 @@ async def test_callback_redirects_to_configured_frontend_origin(
 ) -> None:
     monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
 
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     userinfo = {
         "sub": "google-oauth2|123",
         "email": "user@example.com",
@@ -330,9 +449,7 @@ async def test_callback_redirects_to_configured_frontend_origin(
 
     with patch.object(auth_routes, "get_google_client", return_value=google_client):
         async with client:
-            await client.get(
-                "http://test/auth/login?next=https://frontend.example.com/create"
-            )
+            await client.get("/auth/login?next=https://frontend.example.com/create")
             resp = await client.get("/auth/callback")
 
     assert resp.status_code == 307
@@ -340,8 +457,29 @@ async def test_callback_redirects_to_configured_frontend_origin(
 
 
 @pytest.mark.asyncio
+async def test_login_uses_secure_session_cookie_for_https_frontend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
+
+    _, client = _make_client(base_url="https://test")
+    redirect = RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+    authorize_redirect = AsyncMock(return_value=redirect)
+    google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
+
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
+        async with client:
+            resp = await client.get("/auth/login")
+
+    set_cookie = resp.headers.get("set-cookie", "")
+    assert "evently_session=" in set_cookie
+    assert "samesite=lax" in set_cookie
+    assert "secure" in set_cookie
+
+
+@pytest.mark.asyncio
 async def test_login_uses_allowed_referer_as_post_auth_redirect() -> None:
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     authorize_redirect = AsyncMock(
         return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
     )
@@ -368,7 +506,7 @@ async def test_login_rejects_disallowed_next_and_falls_back_to_primary_origin(
 ) -> None:
     monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
 
-    _, client = _make_client()
+    _, client = _make_client(base_url="https://test")
     authorize_redirect = AsyncMock(
         return_value=RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
     )
@@ -484,6 +622,57 @@ async def test_auth_session_creates_local_user_from_oauth_session() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auth_session_reconciles_stale_local_user_with_current_oauth_user() -> (
+    None
+):
+    app, client = _make_client()
+    stale_user = User(
+        id=7,
+        username="sarah",
+        first_name="Sarah",
+        last_name="Johnson",
+        email="sarah@example.com",
+    )
+    current_user = User(
+        id=8,
+        username="lucas",
+        first_name="Lucas",
+        last_name="Nguyen",
+        email="lucas.h.nguyen@sjsu.edu",
+    )
+    await app.state.db["users"].insert_one(stale_user.model_dump(mode="json"))
+    await app.state.db["users"].insert_one(current_user.model_dump(mode="json"))
+
+    async with client:
+        await client.post(
+            "/_test/session",
+            json={
+                auth_routes._OAUTH_USER_SESSION_KEY: {
+                    "email": "lucas.h.nguyen@sjsu.edu",
+                    "given_name": "Lucas",
+                    "family_name": "Nguyen",
+                },
+                auth_routes._EVENTLY_USER_SESSION_KEY: 7,
+            },
+        )
+        resp = await client.get("/auth/session")
+        session_resp = await client.get("/_test/session")
+
+    assert resp.status_code == 200
+    assert resp.json()["user"]["id"] == 8
+    assert resp.json()["user"]["name"] == "Lucas Nguyen"
+    assert session_resp.json() == {
+        auth_routes._OAUTH_USER_SESSION_KEY: {
+            "email": "lucas.h.nguyen@sjsu.edu",
+            "given_name": "Lucas",
+            "family_name": "Nguyen",
+        },
+        auth_routes._EVENTLY_USER_SESSION_KEY: 8,
+        auth_routes._POST_AUTH_REDIRECT_KEY: None,
+    }
+
+
+@pytest.mark.asyncio
 async def test_resolve_or_create_local_user_stores_roles_as_list() -> None:
     db = _FakeDb()
 
@@ -516,6 +705,30 @@ async def test_resolve_or_create_local_user_assigns_admin_role_from_admin_emails
             "email": "Admin@Example.com",
             "given_name": "Admin",
             "family_name": "User",
+        },
+    )
+
+    stored = await db["users"].find_one()
+
+    assert user is not None
+    assert stored is not None
+    assert sorted(role.value for role in user.roles) == ["admin", "user"]
+    assert stored["roles"] == ["admin", "user"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_or_create_local_user_assigns_admin_role_from_quoted_admin_emails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ADMIN_EMAILS", '"lucas.h.nguyen@sjsu.edu,admin2@example.com"')
+    db = _FakeDb()
+
+    user = await auth_routes._resolve_or_create_local_user(
+        cast(Any, db),
+        {
+            "email": "lucas.h.nguyen@sjsu.edu",
+            "given_name": "Lucas",
+            "family_name": "Nguyen",
         },
     )
 

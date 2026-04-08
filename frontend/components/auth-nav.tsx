@@ -2,6 +2,15 @@
 
 import { useAuth } from "@/lib/auth";
 
+function displayName(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined,
+  fallback: string,
+): string {
+  const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+  return fullName || fallback;
+}
+
 export function AuthNav() {
   const { user, loading } = useAuth();
   const isAdmin = user?.roles.includes("admin") ?? false;
@@ -26,7 +35,7 @@ export function AuthNav() {
           </a>
         )}
         <span className="hidden text-sm text-gray-700 sm:inline">
-          {user.first_name || user.name}
+          {displayName(user.first_name, user.last_name, user.name)}
         </span>
         <a
           href="/logout"

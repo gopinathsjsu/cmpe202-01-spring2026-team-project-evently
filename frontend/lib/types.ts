@@ -43,9 +43,7 @@ export interface UserDetail {
   username: string;
   first_name: string;
   last_name: string;
-  email: string;
-  phone_number: string | null;
-  roles: string[];
+  profile_photo_url: string | null;
   profile: UserProfile;
   events_created_count: number;
   events_attended_count: number;

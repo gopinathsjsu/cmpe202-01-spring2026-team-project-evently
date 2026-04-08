@@ -400,7 +400,7 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
 async def test_create_then_get_returns_all_fields(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
-    """Create an event and GET it back — every field must match."""
+    """Newly created events stay pending and are hidden from the public detail view."""
     await _clean(db)
 
     payload = _valid_payload()
@@ -412,40 +412,50 @@ async def test_create_then_get_returns_all_fields(
         created = create_resp.json()
 
         get_resp = await client.get(f"/events/{created['id']}")
-        assert get_resp.status_code == 200
-        fetched = get_resp.json()
+        assert get_resp.status_code == 404
 
-    assert fetched["title"] == payload["title"]
-    assert fetched["about"] == payload["about"]
-    assert fetched["organizer_user_id"] == 1
-    assert fetched["price"] == payload["price"]
-    assert fetched["total_capacity"] == payload["total_capacity"]
-    assert fetched["category"] == payload["category"]
-    assert fetched["is_online"] == payload["is_online"]
-    assert fetched["image_url"] == payload["image_url"]
-    assert fetched["schedule"] == payload["schedule"]
-    assert fetched["location"]["city"] == "San Francisco"
-    assert fetched["location"]["state"] == "CA"
-    assert fetched["attending_count"] == 0
-    assert fetched["favorites_count"] == 0
+    assert created["title"] == payload["title"]
+    assert created["about"] == payload["about"]
+    assert created["organizer_user_id"] == 1
+    assert created["price"] == payload["price"]
+    assert created["total_capacity"] == payload["total_capacity"]
+    assert created["category"] == payload["category"]
+    assert created["is_online"] == payload["is_online"]
+    assert created["image_url"] == payload["image_url"]
+    assert created["schedule"] == payload["schedule"]
+    assert created["location"]["city"] == "San Francisco"
+    assert created["location"]["state"] == "CA"
+    assert created["attending_count"] == 0
+    assert created["favorites_count"] == 0
+
+    stored = await db["events"].find_one({"id": created["id"]})
+    assert stored is not None
+    assert stored["status"] == "pending"
 
 
 @pytest.mark.asyncio
 async def test_created_event_appears_in_listing(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
-    """A newly created event must be returned by the list endpoint."""
+    """A newly created event remains pending and stays out of the public listing."""
     await _clean(db)
 
     _, client = _make_client(db, auth_user=_auth_user())
     async with client:
-        await client.post("/events/", json=_valid_payload(title="Listed Event"))
+        create_resp = await client.post(
+            "/events/", json=_valid_payload(title="Listed Event")
+        )
+        assert create_resp.status_code == 201
 
         resp = await client.get("/events/")
 
     body = resp.json()
-    assert body["total"] == 1
-    assert body["items"][0]["title"] == "Listed Event"
+    assert body["total"] == 0
+    assert body["items"] == []
+
+    stored = await db["events"].find_one({"title": "Listed Event"})
+    assert stored is not None
+    assert stored["status"] == "pending"
 
 
 @pytest.mark.asyncio
