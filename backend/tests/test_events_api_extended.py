@@ -442,7 +442,9 @@ async def test_created_event_appears_in_listing(
 
     _, client = _make_client(db, auth_user=_auth_user())
     async with client:
-        create_resp = await client.post("/events/", json=_valid_payload(title="Listed Event"))
+        create_resp = await client.post(
+            "/events/", json=_valid_payload(title="Listed Event")
+        )
         assert create_resp.status_code == 201
 
         resp = await client.get("/events/")
