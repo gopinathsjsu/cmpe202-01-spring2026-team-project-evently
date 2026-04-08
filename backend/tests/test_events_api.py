@@ -36,7 +36,7 @@ def _auth_user(user_id: int = 1) -> AuthSessionUser:
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
-    for coll in ("events", "attendance", "event_favorites"):
+    for coll in ("events", "attendance", "event_favorites", "counters"):
         await db[coll].delete_many({})
 
 
@@ -144,7 +144,7 @@ async def test_register_event_attendance_creates_registration(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_one(event_data)
+    await db["events"].insert_one({**event_data, "registered_count": 0})
 
     _, client = _make_client(db, _auth_user(7))
     async with client:
@@ -156,6 +156,9 @@ async def test_register_event_attendance_creates_registration(
     saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
     assert saved is not None
     assert saved["status"] == "going"
+    event = await db["events"].find_one({"id": 1})
+    assert event is not None
+    assert event["registered_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -163,7 +166,7 @@ async def test_register_event_attendance_restores_cancelled_registration(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_one(event_data)
+    await db["events"].insert_one({**event_data, "registered_count": 0})
     await db["attendance"].insert_one(
         {"event_id": 1, "user_id": 7, "status": "cancelled", "checked_in_at": None}
     )
@@ -178,6 +181,9 @@ async def test_register_event_attendance_restores_cancelled_registration(
     saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
     assert saved is not None
     assert saved["status"] == "going"
+    event = await db["events"].find_one({"id": 1})
+    assert event is not None
+    assert event["registered_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -200,7 +206,9 @@ async def test_register_event_attendance_rejects_sold_out_event(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_one({**event_data, "total_capacity": 1})
+    await db["events"].insert_one(
+        {**event_data, "total_capacity": 1, "registered_count": 1}
+    )
     await db["attendance"].insert_one(
         {"event_id": 1, "user_id": 5, "status": "going", "checked_in_at": None}
     )
@@ -233,7 +241,7 @@ async def test_cancel_event_attendance_marks_registration_cancelled(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:
     await _clean(db)
-    await db["events"].insert_one(event_data)
+    await db["events"].insert_one({**event_data, "registered_count": 1})
     await db["attendance"].insert_one(
         {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
     )
@@ -249,6 +257,9 @@ async def test_cancel_event_attendance_marks_registration_cancelled(
     assert saved is not None
     assert saved["status"] == "cancelled"
     assert saved["checked_in_at"] is None
+    event = await db["events"].find_one({"id": 1})
+    assert event is not None
+    assert event["registered_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -653,6 +664,7 @@ async def test_create_event(
     assert stored is not None
     assert stored["title"] == "New Event"
     assert stored["organizer_user_id"] == 1
+    assert stored["registered_count"] == 0
 
 
 @pytest.mark.asyncio
