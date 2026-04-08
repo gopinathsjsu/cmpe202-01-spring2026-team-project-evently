@@ -4,7 +4,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
-from pymongo import ASCENDING, DESCENDING
+from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.db import get_db
@@ -171,8 +171,18 @@ class EventCreate(BaseModel):
 
 
 async def _next_event_id(db: AsyncDatabase[dict[str, Any]]) -> int:
-    last = await db["events"].find_one(sort=[("id", DESCENDING)])
-    return (last["id"] + 1) if last else 1
+    if await db["events"].count_documents({}, limit=1) == 0:
+        await db["counters"].delete_one({"_id": "events"})
+
+    counter = await db["counters"].find_one_and_update(
+        {"_id": "events"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    if counter is None:
+        raise HTTPException(status_code=500, detail="Failed to allocate event ID")
+    return int(counter["seq"])
 
 
 async def _attending_counts(
@@ -190,6 +200,43 @@ async def _attending_counts(
     async for doc in cursor:
         counts[doc["_id"]] = doc["count"]
     return counts
+
+
+async def _ensure_registered_count(
+    db: AsyncDatabase[dict[str, Any]], event_id: int
+) -> None:
+    raw_event = await db["events"].find_one(
+        {"id": event_id}, {"_id": 1, "registered_count": 1}
+    )
+    if raw_event is None or "registered_count" in raw_event:
+        return
+
+    active_count = await db["attendance"].count_documents(
+        {"event_id": event_id, "status": {"$ne": AttendanceStatus.Cancelled.value}}
+    )
+    await db["events"].update_one(
+        {"_id": raw_event["_id"], "registered_count": {"$exists": False}},
+        {"$set": {"registered_count": active_count}},
+    )
+
+
+async def _reserve_event_slot(db: AsyncDatabase[dict[str, Any]], event_id: int) -> bool:
+    reserved = await db["events"].find_one_and_update(
+        {
+            "id": event_id,
+            "$expr": {"$lt": ["$registered_count", "$total_capacity"]},
+        },
+        {"$inc": {"registered_count": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return reserved is not None
+
+
+async def _release_event_slot(db: AsyncDatabase[dict[str, Any]], event_id: int) -> None:
+    await db["events"].update_one(
+        {"id": event_id, "registered_count": {"$gt": 0}},
+        {"$inc": {"registered_count": -1}},
+    )
 
 
 def _resolve_date_preset(preset: str) -> tuple[datetime, datetime]:
@@ -288,7 +335,7 @@ async def list_events(
 
     if date_preset:
         preset_from, preset_to = _resolve_date_preset(date_preset)
-        filters["start_time"] = {"$gte": preset_from, "$lte": preset_to}
+        filters["start_time"] = {"$gte": preset_from, "$lt": preset_to}
     elif start_from or start_to:
         time_filter: dict[str, datetime] = {}
         if start_from is not None:
@@ -399,31 +446,35 @@ async def register_attendance(
     if existing is not None and existing["status"] != AttendanceStatus.Cancelled.value:
         return AttendanceRegisterResponse(event_id=event_id, user_id=current_user.id)
 
-    attending_count = await db["attendance"].count_documents(
-        {"event_id": event_id, "status": {"$ne": AttendanceStatus.Cancelled.value}}
-    )
-    if attending_count >= event.total_capacity:
+    await _ensure_registered_count(db, event_id)
+    if not await _reserve_event_slot(db, event_id):
         raise HTTPException(status_code=400, detail="This event is sold out")
 
-    if existing is None:
-        await db["attendance"].insert_one(
-            {
-                "event_id": event_id,
-                "user_id": current_user.id,
-                "status": AttendanceStatus.Going.value,
-                "checked_in_at": None,
-            }
-        )
-    else:
-        await db["attendance"].update_many(
-            {"event_id": event_id, "user_id": current_user.id},
-            {
-                "$set": {
+    try:
+        if existing is None:
+            await db["attendance"].insert_one(
+                {
+                    "event_id": event_id,
+                    "user_id": current_user.id,
                     "status": AttendanceStatus.Going.value,
                     "checked_in_at": None,
                 }
-            },
-        )
+            )
+        else:
+            result = await db["attendance"].update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": {
+                        "status": AttendanceStatus.Going.value,
+                        "checked_in_at": None,
+                    }
+                },
+            )
+            if result.matched_count != 1:
+                raise HTTPException(status_code=409, detail="Registration state changed")
+    except Exception:
+        await _release_event_slot(db, event_id)
+        raise
 
     return AttendanceRegisterResponse(event_id=event_id, user_id=current_user.id)
 
@@ -449,8 +500,8 @@ async def cancel_attendance(
     if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
         raise HTTPException(status_code=404, detail="Registration not found")
 
-    await db["attendance"].update_many(
-        {"event_id": event_id, "user_id": current_user.id},
+    result = await db["attendance"].update_one(
+        {"_id": existing["_id"]},
         {
             "$set": {
                 "status": AttendanceStatus.Cancelled.value,
@@ -458,6 +509,11 @@ async def cancel_attendance(
             }
         },
     )
+    if result.matched_count != 1:
+        raise HTTPException(status_code=409, detail="Registration state changed")
+
+    await _ensure_registered_count(db, event_id)
+    await _release_event_slot(db, event_id)
 
     return AttendanceCancelResponse(event_id=event_id, user_id=current_user.id)
 
@@ -490,7 +546,7 @@ async def create_event(
         location=body.location,
     )
 
-    await db["events"].insert_one(event.model_dump())
+    await db["events"].insert_one({**event.model_dump(), "registered_count": 0})
 
     return EventDetail.from_event(event, attending_count=0, favorites_count=0)
 
