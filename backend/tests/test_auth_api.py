@@ -622,7 +622,9 @@ async def test_auth_session_creates_local_user_from_oauth_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_auth_session_reconciles_stale_local_user_with_current_oauth_user() -> None:
+async def test_auth_session_reconciles_stale_local_user_with_current_oauth_user() -> (
+    None
+):
     app, client = _make_client()
     stale_user = User(
         id=7,

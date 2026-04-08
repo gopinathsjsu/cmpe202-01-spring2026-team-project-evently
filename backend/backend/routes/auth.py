@@ -165,7 +165,9 @@ def _base_username(userinfo: Mapping[str, object], email: str) -> str:
     return sanitized or "evently_user"
 
 
-def _oauth_profile_updates(userinfo: Mapping[str, object], user: User) -> dict[str, object]:
+def _oauth_profile_updates(
+    userinfo: Mapping[str, object], user: User
+) -> dict[str, object]:
     first_name, last_name = _derive_names(userinfo, user.email)
     profile_photo_url = _string_value(userinfo.get("picture"))
 
