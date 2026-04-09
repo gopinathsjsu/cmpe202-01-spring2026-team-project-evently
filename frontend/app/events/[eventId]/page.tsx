@@ -3,12 +3,28 @@ import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
 import type { EventDetail, UserDetail } from "@/lib/types";
+import { EventLocationMapDynamic } from "./event-location-map-dynamic";
 import { RegistrationCard } from "./registration-card";
 import { ShareButtons } from "./share-buttons";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function buildInPersonAddressLine(event: {
+  location: {
+    venue_name: string | null;
+    address: string;
+    city: string;
+    state: string;
+    zip_code: string;
+  };
+}): string {
+  const { venue_name, address, city, state, zip_code } = event.location;
+  const parts = [address, `${city}, ${state} ${zip_code}`.trim()].filter(Boolean);
+  const line = parts.join(" · ");
+  return venue_name ? `${venue_name} — ${line}` : line;
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -173,13 +189,19 @@ export default async function EventDetailPage({
                       <p className="font-medium">{event.location.venue_name}</p>
                     )}
                     <p className="text-zinc-500 dark:text-zinc-400">
-                      {event.location.city}, {event.location.state} {event.location.zip_code}
+                      {event.location.address
+                        ? `${event.location.address}, ${event.location.city}, ${event.location.state} ${event.location.zip_code}`
+                        : `${event.location.city}, ${event.location.state} ${event.location.zip_code}`}
                     </p>
                   </div>
                 </div>
-                {/* Map placeholder */}
-                <div className="mt-4 flex aspect-[16/9] items-center justify-center rounded-xl bg-zinc-200 text-sm text-zinc-400 dark:bg-zinc-800">
-                  Map Integration
+                <div className="mt-4">
+                  <EventLocationMapDynamic
+                    latitude={event.location.latitude}
+                    longitude={event.location.longitude}
+                    popupTitle={event.location.venue_name ?? "Event venue"}
+                    mapsQuery={buildInPersonAddressLine(event)}
+                  />
                 </div>
               </section>
             )}
