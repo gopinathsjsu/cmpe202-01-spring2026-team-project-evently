@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
 import type { EventDetail, UserDetail } from "@/lib/types";
+import { EventLocationMapLoader } from "./event-location-map-loader";
 import { RegistrationCard } from "./registration-card";
 import { ShareButtons } from "./share-buttons";
 
@@ -177,10 +178,10 @@ export default async function EventDetailPage({
                     </p>
                   </div>
                 </div>
-                {/* Map placeholder */}
-                <div className="mt-4 flex aspect-[16/9] items-center justify-center rounded-xl bg-zinc-200 text-sm text-zinc-400 dark:bg-zinc-800">
-                  Map Integration
-                </div>
+                <EventLocationMapLoader
+                  latitude={event.location.latitude}
+                  longitude={event.location.longitude}
+                />
               </section>
             )}
 
