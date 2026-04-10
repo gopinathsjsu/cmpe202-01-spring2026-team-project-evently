@@ -88,7 +88,7 @@ When an admin signs in, the navigation shows an `Admin Queue` button that links 
 ## Architecture
 
 Below is the architecture diagram for the Evently system:
-- ![Architecture Diagram](diagrams/architecture.png)
+![Architecture Diagram](diagrams/Architecture.png)
 
 [![Assignment Link](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/xRTHk3Dv)
 
