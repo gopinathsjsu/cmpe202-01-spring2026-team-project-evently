@@ -356,7 +356,9 @@ async def _get_authenticated_user(
 
             oauth_subject, oauth_email = oauth_identity
             if user.google_sub == oauth_subject:
-                picture = _string_value(oauth_user.get("picture"))
+                picture = None
+                if is_google_userinfo(oauth_user):
+                    picture = _string_value(oauth_user.get("picture"))
                 full_name = " ".join(
                     part for part in [user.first_name, user.last_name] if part
                 ).strip()
@@ -377,7 +379,9 @@ async def _get_authenticated_user(
                     {"id": user.id}, {"$set": {"google_sub": oauth_subject}}
                 )
                 user = user.model_copy(update={"google_sub": oauth_subject})
-                picture = _string_value(oauth_user.get("picture"))
+                picture = None
+                if is_google_userinfo(oauth_user):
+                    picture = _string_value(oauth_user.get("picture"))
                 full_name = " ".join(
                     part for part in [user.first_name, user.last_name] if part
                 ).strip()
