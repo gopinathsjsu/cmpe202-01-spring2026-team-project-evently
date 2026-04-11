@@ -137,7 +137,7 @@ export default function CreateEventPage() {
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
-          router.replace(`/signin?next=${encodeURIComponent("/create")}`);
+          window.location.replace(`/signin?next=${encodeURIComponent("/create")}`);
           return;
         }
         setError(

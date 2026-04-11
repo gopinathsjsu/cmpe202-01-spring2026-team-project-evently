@@ -85,21 +85,21 @@ export default function Navbar() {
               <span className="hidden text-sm text-gray-700 sm:inline">
                 {displayName(user.first_name, user.last_name, user.name)}
               </span>
-              <Link
+              <a
                 href="/logout"
                 className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:border-black hover:text-black"
               >
                 Sign Out
-              </Link>
+              </a>
             </>
           ) : (
             <>
-              <Link href={withNext("/signin", nextPath)} className="text-sm font-medium text-gray-700 hover:text-black">
+              <a href={withNext("/signin", nextPath)} className="text-sm font-medium text-gray-700 hover:text-black">
                 Sign In
-              </Link>
-              <Link href={withNext("/signup", nextPath)} className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
+              </a>
+              <a href={withNext("/signup", nextPath)} className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
                 Sign Up
-              </Link>
+              </a>
             </>
           )}
         </div>
