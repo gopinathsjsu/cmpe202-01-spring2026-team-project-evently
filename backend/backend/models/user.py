@@ -28,6 +28,7 @@ class User(BaseModel):
     last_name: str
 
     email: EmailStr
+    google_sub: str | None = None
     phone_number: str | None = None
 
     roles: set[GlobalRole] = Field(default_factory=lambda: {GlobalRole.User})

@@ -71,18 +71,18 @@ export function AuthRequiredAction({
               one, or create an account to continue.
             </p>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <Link
+              <a
                 href={signinHref}
                 className="inline-flex items-center justify-center rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 transition hover:border-black hover:text-black"
               >
                 Sign In
-              </Link>
-              <Link
+              </a>
+              <a
                 href={signupHref}
                 className="inline-flex items-center justify-center rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:bg-gray-800"
               >
                 Sign Up
-              </Link>
+              </a>
             </div>
             <button
               type="button"

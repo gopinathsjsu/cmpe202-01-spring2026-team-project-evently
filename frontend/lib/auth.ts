@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ApiError, apiFetch } from "@/lib/api";
@@ -96,7 +96,6 @@ export function useRequireAuth(): {
   loading: boolean;
   error: string | null;
 } {
-  const router = useRouter();
   const pathname = usePathname();
   const auth = useAuth();
 
@@ -110,9 +109,9 @@ export function useRequireAuth(): {
         window.location.hash,
       );
       params.set("next", nextPath);
-      router.replace(`/signin?${params.toString()}`);
+      window.location.replace(`/signin?${params.toString()}`);
     }
-  }, [auth.loading, auth.user, pathname, router]);
+  }, [auth.loading, auth.user, pathname]);
 
   return auth;
 }

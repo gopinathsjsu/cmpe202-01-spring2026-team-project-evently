@@ -3,15 +3,49 @@ from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
 from backend.db import get_db
 
 
-def _make_client(
-    db: AsyncDatabase[dict[str, Any]],
-) -> tuple[Any, AsyncClient]:
+class _InsertOneResult:
+    def __init__(self, inserted_id: str) -> None:
+        self.inserted_id = inserted_id
+
+
+class _FakeCollection:
+    def __init__(self) -> None:
+        self._docs: list[dict[str, Any]] = []
+
+    async def delete_many(self, _query: dict[str, Any]) -> None:
+        self._docs.clear()
+
+    async def insert_one(self, doc: dict[str, Any]) -> _InsertOneResult:
+        inserted_id = str(len(self._docs) + 1)
+        self._docs.append({"_id": inserted_id, **doc})
+        return _InsertOneResult(inserted_id)
+
+    async def find_one(
+        self, query: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        if not query:
+            return self._docs[0] if self._docs else None
+
+        for doc in self._docs:
+            if all(doc.get(key) == value for key, value in query.items()):
+                return doc
+        return None
+
+
+class _FakeDb:
+    def __init__(self) -> None:
+        self._collections = {"contact_submissions": _FakeCollection()}
+
+    def __getitem__(self, name: str) -> _FakeCollection:
+        return self._collections.setdefault(name, _FakeCollection())
+
+
+def _make_client(db: _FakeDb) -> tuple[Any, AsyncClient]:
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
     transport = ASGITransport(app=app)
@@ -19,7 +53,7 @@ def _make_client(
     return app, client
 
 
-async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
+async def _clean(db: _FakeDb) -> None:
     await db["contact_submissions"].delete_many({})
 
 
@@ -29,9 +63,8 @@ async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
 
 
 @pytest.mark.asyncio
-async def test_submit_contact_success(
-    db: AsyncDatabase[dict[str, Any]],
-) -> None:
+async def test_submit_contact_success() -> None:
+    db = _FakeDb()
     await _clean(db)
 
     _, client = _make_client(db)
@@ -56,9 +89,8 @@ async def test_submit_contact_success(
 
 
 @pytest.mark.asyncio
-async def test_submit_contact_persists_in_db(
-    db: AsyncDatabase[dict[str, Any]],
-) -> None:
+async def test_submit_contact_persists_in_db() -> None:
+    db = _FakeDb()
     await _clean(db)
 
     _, client = _make_client(db)
@@ -79,9 +111,8 @@ async def test_submit_contact_persists_in_db(
 
 
 @pytest.mark.asyncio
-async def test_submit_contact_invalid_subject(
-    db: AsyncDatabase[dict[str, Any]],
-) -> None:
+async def test_submit_contact_invalid_subject() -> None:
+    db = _FakeDb()
     await _clean(db)
 
     _, client = _make_client(db)
@@ -100,9 +131,8 @@ async def test_submit_contact_invalid_subject(
 
 
 @pytest.mark.asyncio
-async def test_submit_contact_invalid_email(
-    db: AsyncDatabase[dict[str, Any]],
-) -> None:
+async def test_submit_contact_invalid_email() -> None:
+    db = _FakeDb()
     await _clean(db)
 
     _, client = _make_client(db)
@@ -121,9 +151,8 @@ async def test_submit_contact_invalid_email(
 
 
 @pytest.mark.asyncio
-async def test_submit_contact_empty_message(
-    db: AsyncDatabase[dict[str, Any]],
-) -> None:
+async def test_submit_contact_empty_message() -> None:
+    db = _FakeDb()
     await _clean(db)
 
     _, client = _make_client(db)
@@ -142,9 +171,8 @@ async def test_submit_contact_empty_message(
 
 
 @pytest.mark.asyncio
-async def test_submit_contact_with_attachment(
-    db: AsyncDatabase[dict[str, Any]],
-) -> None:
+async def test_submit_contact_with_attachment() -> None:
+    db = _FakeDb()
     await _clean(db)
 
     fake_image = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
@@ -171,9 +199,8 @@ async def test_submit_contact_with_attachment(
 
 
 @pytest.mark.asyncio
-async def test_submit_contact_all_valid_subjects(
-    db: AsyncDatabase[dict[str, Any]],
-) -> None:
+async def test_submit_contact_all_valid_subjects() -> None:
+    db = _FakeDb()
     """All allowed subjects should be accepted."""
     await _clean(db)
 
@@ -199,3 +226,34 @@ async def test_submit_contact_all_valid_subjects(
                 },
             )
             assert resp.status_code == 201, f"Failed for subject: {subject}"
+
+
+@pytest.mark.asyncio
+async def test_submit_contact_rate_limits_repeat_submissions() -> None:
+    db = _FakeDb()
+    await _clean(db)
+
+    _, client = _make_client(db)
+    async with client:
+        for attempt in range(10):
+            resp = await client.post(
+                "/contact/",
+                data={
+                    "subject": "Bug Report",
+                    "email": "user@example.com",
+                    "message": f"Attempt {attempt}",
+                },
+            )
+            assert resp.status_code == 201
+
+        blocked = await client.post(
+            "/contact/",
+            data={
+                "subject": "Bug Report",
+                "email": "user@example.com",
+                "message": "Blocked",
+            },
+        )
+
+    assert blocked.status_code == 429
+    assert "Too many contact submissions" in blocked.json()["detail"]
