@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
@@ -43,6 +44,21 @@ function buildGoogleCalendarUrl(event: EventDetail): string {
   return `https://calendar.google.com/calendar/render?${params}`;
 }
 
+async function buildEventShareUrl(eventId: string): Promise<string> {
+  const requestHeaders = await headers();
+  const host =
+    requestHeaders.get("x-forwarded-host") ??
+    requestHeaders.get("host") ??
+    "localhost:3000";
+  const protocol =
+    requestHeaders.get("x-forwarded-proto") ??
+    (host.startsWith("localhost") || host.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
+
+  return `${protocol}://${host}/events/${eventId}`;
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -53,6 +69,7 @@ export default async function EventDetailPage({
   params: Promise<{ eventId: string }>;
 }) {
   const { eventId } = await params;
+  const shareUrl = await buildEventShareUrl(eventId);
 
   let event: EventDetail;
   try {
@@ -254,7 +271,7 @@ export default async function EventDetailPage({
             {/* Share */}
             <div className="rounded-xl border border-zinc-200 bg-white p-6 text-zinc-900 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100">
               <h4 className="mb-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">Share Event</h4>
-              <ShareButtons />
+              <ShareButtons shareUrl={shareUrl} />
             </div>
           </aside>
         </div>

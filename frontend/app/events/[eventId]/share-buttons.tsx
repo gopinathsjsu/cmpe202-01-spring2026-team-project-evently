@@ -1,7 +1,7 @@
 "use client";
 
-export function ShareButtons() {
-  const url = typeof window !== "undefined" ? window.location.href : "";
+export function ShareButtons({ shareUrl }: { shareUrl: string }) {
+  const url = shareUrl;
 
   return (
     <div className="flex gap-3">
