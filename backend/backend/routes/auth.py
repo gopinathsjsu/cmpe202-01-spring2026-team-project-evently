@@ -23,6 +23,7 @@ from backend.models.user import GlobalRole, User
 CONF_URL = "https://accounts.google.com/.well-known/openid-configuration"
 
 OAUTH_NOT_CONFIGURED = "Google OAuth is not configured"
+OAUTH_INVALID_IDENTITY = "Google account is missing required verified identity claims"
 USERNAME_SANITIZER = re.compile(r"[^a-z0-9_]+")
 
 _OAUTH_USER_SESSION_KEY = "user"
@@ -115,8 +116,33 @@ def _string_value(value: object) -> str | None:
     return None
 
 
+def _bool_value(value: object) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes"}:
+            return True
+        if normalized in {"false", "0", "no"}:
+            return False
+    return None
+
+
 def _normalized_email(value: str) -> str:
     return value.strip().strip("\"'").lower()
+
+
+def _oauth_subject(userinfo: Mapping[str, object]) -> str | None:
+    return _string_value(userinfo.get("sub"))
+
+
+def _verified_oauth_email(userinfo: Mapping[str, object]) -> str | None:
+    email = _oauth_email(userinfo)
+    if email is None:
+        return None
+    if _bool_value(userinfo.get("email_verified")) is not True:
+        return None
+    return email
 
 
 def _configured_admin_emails() -> set[str]:
@@ -170,12 +196,15 @@ def _oauth_profile_updates(
 ) -> dict[str, object]:
     first_name, last_name = _derive_names(userinfo, user.email)
     profile_photo_url = _string_value(userinfo.get("picture"))
+    normalized_email = _verified_oauth_email(userinfo)
 
     updates: dict[str, object] = {}
     if first_name and first_name != user.first_name:
         updates["first_name"] = first_name
     if last_name != user.last_name:
         updates["last_name"] = last_name
+    if normalized_email and normalized_email != _normalized_email(str(user.email)):
+        updates["email"] = normalized_email
     if profile_photo_url and profile_photo_url != user.profile_photo_url:
         updates["profile_photo_url"] = profile_photo_url
 
@@ -218,29 +247,54 @@ async def _unique_username(
 async def _resolve_or_create_local_user(
     db: AsyncDatabase[dict[str, Any]], userinfo: Mapping[str, object]
 ) -> User | None:
-    email = _string_value(userinfo.get("email"))
-    if email is None:
+    subject = _oauth_subject(userinfo)
+    normalized_email = _verified_oauth_email(userinfo)
+    if subject is None or normalized_email is None:
         return None
-    normalized_email = _normalized_email(email)
 
-    existing = await db["users"].find_one({"email": normalized_email})
+    existing = await db["users"].find_one({"google_sub": subject})
     if existing is not None:
         user = await _sync_user_roles(db, User(**existing))
         updates = _oauth_profile_updates(userinfo, user)
+        if updates:
+            if updated_email := updates.get("email"):
+                email_owner = await db["users"].find_one({"email": updated_email})
+                if email_owner is not None and email_owner.get("id") != user.id:
+                    raise HTTPException(
+                        status_code=409, detail="Google account email is already in use"
+                    )
+            await db["users"].update_one({"id": user.id}, {"$set": updates})
+            user = user.model_copy(update=updates)
+        return user
+
+    existing = await db["users"].find_one({"email": normalized_email})
+    if existing is not None:
+        if (
+            existing_google_sub := _string_value(existing.get("google_sub"))
+        ) is not None and existing_google_sub != subject:
+            raise HTTPException(
+                status_code=409, detail="Google account is already linked elsewhere"
+            )
+
+        user = await _sync_user_roles(db, User(**existing))
+        updates = _oauth_profile_updates(userinfo, user)
+        if user.google_sub != subject:
+            updates["google_sub"] = subject
         if updates:
             await db["users"].update_one({"id": user.id}, {"$set": updates})
             user = user.model_copy(update=updates)
         return user
 
-    first_name, last_name = _derive_names(userinfo, email)
-    username = await _unique_username(db, _base_username(userinfo, email))
+    first_name, last_name = _derive_names(userinfo, normalized_email)
+    username = await _unique_username(db, _base_username(userinfo, normalized_email))
     user = User(
         id=await _next_user_id(db),
         username=username,
         first_name=first_name,
         last_name=last_name,
         email=normalized_email,
-        roles=_roles_for_email(email),
+        google_sub=subject,
+        roles=_roles_for_email(normalized_email),
         profile_photo_url=_string_value(userinfo.get("picture")),
     )
     await db["users"].insert_one(
@@ -268,17 +322,62 @@ async def _get_authenticated_user(
     db: AsyncDatabase[dict[str, Any]], request: Request
 ) -> AuthSessionUser | None:
     oauth_user = request.session.get(_OAUTH_USER_SESSION_KEY)
-    oauth_email = _oauth_email(oauth_user) if is_google_userinfo(oauth_user) else None
+    oauth_identity: tuple[str, str] | None = None
+    if (
+        is_google_userinfo(oauth_user)
+        and (oauth_subject := _oauth_subject(oauth_user))
+        and (oauth_email := _verified_oauth_email(oauth_user))
+    ):
+        oauth_identity = (oauth_subject, oauth_email)
 
     local_user_id = request.session.get(_EVENTLY_USER_SESSION_KEY)
     if isinstance(local_user_id, int):
         existing = await db["users"].find_one({"id": local_user_id})
         if existing is not None:
             user = await _sync_user_roles(db, User(**existing))
-            if oauth_email is None or oauth_email == _normalized_email(user.email):
+            if oauth_identity is None:
+                if is_google_userinfo(oauth_user):
+                    request.session.pop(_OAUTH_USER_SESSION_KEY, None)
                 picture = None
                 if is_google_userinfo(oauth_user):
                     picture = _string_value(oauth_user.get("picture"))
+                full_name = " ".join(
+                    part for part in [user.first_name, user.last_name] if part
+                ).strip()
+                return AuthSessionUser(
+                    id=user.id,
+                    email=user.email,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    name=full_name or user.username,
+                    roles=_serialized_roles(user.roles),
+                    picture=picture or user.profile_photo_url,
+                )
+
+            oauth_subject, oauth_email = oauth_identity
+            if user.google_sub == oauth_subject:
+                picture = _string_value(oauth_user.get("picture"))
+                full_name = " ".join(
+                    part for part in [user.first_name, user.last_name] if part
+                ).strip()
+                return AuthSessionUser(
+                    id=user.id,
+                    email=user.email,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                    name=full_name or user.username,
+                    roles=_serialized_roles(user.roles),
+                    picture=picture or user.profile_photo_url,
+                )
+
+            if user.google_sub is None and oauth_email == _normalized_email(
+                str(user.email)
+            ):
+                await db["users"].update_one(
+                    {"id": user.id}, {"$set": {"google_sub": oauth_subject}}
+                )
+                user = user.model_copy(update={"google_sub": oauth_subject})
+                picture = _string_value(oauth_user.get("picture"))
                 full_name = " ".join(
                     part for part in [user.first_name, user.last_name] if part
                 ).strip()
@@ -299,6 +398,7 @@ async def _get_authenticated_user(
 
     local_user = await _resolve_or_create_local_user(db, oauth_user)
     if local_user is None:
+        request.session.pop(_OAUTH_USER_SESSION_KEY, None)
         return None
 
     request.session[_EVENTLY_USER_SESSION_KEY] = local_user.id
@@ -371,10 +471,18 @@ async def auth(request: Request, db: DbDep) -> RedirectResponse:
             status_code=400, detail="OAuth authentication failed"
         ) from e
 
-    if (user := token.get("userinfo")) and is_google_userinfo(user):
-        request.session[_OAUTH_USER_SESSION_KEY] = dict(user)
-        if local_user := await _resolve_or_create_local_user(db, user):
-            request.session[_EVENTLY_USER_SESSION_KEY] = local_user.id
+    if not ((user := token.get("userinfo")) and is_google_userinfo(user)):
+        raise HTTPException(status_code=400, detail="OAuth authentication failed")
+
+    if _oauth_subject(user) is None or _verified_oauth_email(user) is None:
+        raise HTTPException(status_code=400, detail=OAUTH_INVALID_IDENTITY)
+
+    local_user = await _resolve_or_create_local_user(db, user)
+    if local_user is None:
+        raise HTTPException(status_code=400, detail=OAUTH_INVALID_IDENTITY)
+
+    request.session[_OAUTH_USER_SESSION_KEY] = dict(user)
+    request.session[_EVENTLY_USER_SESSION_KEY] = local_user.id
 
     redirect_to = request.session.pop(_POST_AUTH_REDIRECT_KEY, "/")
     return RedirectResponse(url=redirect_to)
