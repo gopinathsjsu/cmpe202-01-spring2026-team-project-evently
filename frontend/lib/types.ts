@@ -49,6 +49,25 @@ export interface UserDetail {
   events_attended_count: number;
 }
 
+export interface FullUserDetail extends UserDetail {
+  email: string;
+  phone_number: string | null;
+  roles: string[];
+}
+
+export interface ActivityItem {
+  event_id: number;
+  event_title: string;
+  event_image_url: string | null;
+  event_end_time: string | null;
+  action: "attended" | "created" | "registered";
+  date: string;
+}
+
+export interface ActivityResponse {
+  items: ActivityItem[];
+}
+
 export interface EventDetail {
   id: number;
   title: string;

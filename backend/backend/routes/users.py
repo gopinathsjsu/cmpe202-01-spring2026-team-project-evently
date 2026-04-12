@@ -407,6 +407,18 @@ async def _build_calendar_response(
 
 
 # ---------------------------------------------------------------------------
+# GET /users/me -- Authenticated user's own full profile
+# ---------------------------------------------------------------------------
+
+
+@router.get("/me", response_model=UserDetail)
+async def get_current_user_profile(db: DbDep, current_user: AuthUserDep) -> UserDetail:
+    """Retrieve full details for the currently authenticated user."""
+    user = await _get_user_or_404(db, current_user.id)
+    return await _build_user_detail(db, user)
+
+
+# ---------------------------------------------------------------------------
 # GET /users/{user_id}
 # ---------------------------------------------------------------------------
 
