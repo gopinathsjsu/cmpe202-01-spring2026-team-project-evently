@@ -193,15 +193,15 @@ export default function ProfilePage() {
     };
   }, [user]);
 
-  const displayFirstName = profile?.first_name || user?.first_name || "";
-  const displayLastName = profile?.last_name || user?.last_name || "";
+  // Use auth session name to match navbar exactly
   const displayName =
-    [displayFirstName, displayLastName].filter(Boolean).join(" ").trim() ||
+    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
     user?.name ||
     "Your Profile";
   const photoUrl =
     resolvePhotoUrl(profile?.profile_photo_url) ??
     resolvePhotoUrl(user?.picture);
+
 
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
@@ -254,7 +254,7 @@ export default function ProfilePage() {
                   />
                 ) : (
                   <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-gray-100 text-2xl font-semibold text-gray-500">
-                    {initials(displayFirstName, displayLastName, user?.name ?? "User")}
+                    {initials(user?.first_name, user?.last_name, user?.name ?? "User")}
                   </div>
                 )}
                 <h2 className="mt-4 text-lg font-semibold">{displayName}</h2>
@@ -343,7 +343,7 @@ export default function ProfilePage() {
                     <EnvelopeIcon className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
                     <div>
                       <dt className="text-xs font-medium text-gray-500">Email</dt>
-                      <dd className="text-sm text-gray-900">{profile?.email ?? user?.email ?? "Not provided"}</dd>
+                      <dd className="text-sm text-gray-900">{user?.email ?? "Not provided"}</dd>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">

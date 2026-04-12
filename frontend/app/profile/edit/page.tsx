@@ -73,14 +73,15 @@ export default function EditProfilePage() {
       .then((res) => {
         if (cancelled) return;
         setProfile(res);
-        setFirstName(res.first_name);
-        setLastName(res.last_name);
+        setFirstName(res.first_name || user.first_name);
+        setLastName(res.last_name || user.last_name);
         setUsername(res.username);
         setBio(res.profile.bio ?? "");
         setLocation(res.profile.location ?? "");
-        setEmail(res.email);
+        setEmail(res.email || user.email);
         setPhone(res.phone_number ?? "");
         setWebsite(res.profile.website ?? "");
+
         setTwitter(res.profile.twitter_handle ?? "");
         setLinkedin(res.profile.linkedin_handle ?? "");
         setInstagram(res.profile.instagram_handle ?? "");
