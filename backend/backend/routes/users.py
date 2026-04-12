@@ -12,6 +12,7 @@ from starlette.requests import Request
 
 from backend.app_config import get_frontend_settings
 from backend.db import get_db
+from backend.models.attendance import AttendanceStatus
 from backend.models.event import Event
 from backend.models.user import GlobalRole, User, UserProfile
 from backend.routes.auth import (
@@ -313,9 +314,53 @@ async def _events_by_id(
     return events
 
 
+async def _backfill_registered_calendar_entries(
+    db: AsyncDatabase[dict[str, Any]], user_id: int
+) -> None:
+    existing_entries = await _calendar_entries_for_user(db, user_id)
+    existing_event_ids = {
+        int(entry["event_id"])
+        for entry in existing_entries
+        if isinstance(entry.get("event_id"), int)
+    }
+
+    attendance_records = await (
+        db["attendance"].find({"user_id": user_id}).sort("_id", -1).to_list(length=None)
+    )
+    latest_status_by_event: dict[int, str | None] = {}
+    for record in attendance_records:
+        event_id = record.get("event_id")
+        if not isinstance(event_id, int) or event_id in latest_status_by_event:
+            continue
+        latest_status_by_event[event_id] = _string_value(record.get("status"))
+
+    missing_event_ids = [
+        event_id
+        for event_id, status in latest_status_by_event.items()
+        if status is not None
+        and status != AttendanceStatus.Cancelled.value
+        and event_id not in existing_event_ids
+    ]
+    if not missing_event_ids:
+        return
+
+    events = await _events_by_id(db, missing_event_ids)
+    for event_id in missing_event_ids:
+        if event_id not in events:
+            continue
+        await db[USER_CALENDAR_COLLECTION].insert_one(
+            {
+                "user_id": user_id,
+                "event_id": event_id,
+                "added_at": datetime.now(tz=UTC),
+            }
+        )
+
+
 async def _build_calendar_response(
     db: AsyncDatabase[dict[str, Any]], user_id: int
 ) -> CalendarResponse:
+    await _backfill_registered_calendar_entries(db, user_id)
     entries = await _calendar_entries_for_user(db, user_id)
     events = await _events_by_id(db, [int(entry["event_id"]) for entry in entries])
 
@@ -399,6 +444,7 @@ async def sync_user_calendar_to_google(
     await _get_user_or_404(db, user_id)
 
     access_token = await get_google_calendar_access_token(request)
+    await _backfill_registered_calendar_entries(db, user_id)
     entries = await _calendar_entries_for_user(db, user_id)
     events = await _events_by_id(db, [int(entry["event_id"]) for entry in entries])
 

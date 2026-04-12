@@ -148,6 +148,7 @@ class _FakeDb:
         self._collections = {
             "users": _FakeCollection(),
             "events": _FakeCollection(),
+            "attendance": _FakeCollection(),
             "user_calendar_entries": _FakeCollection(),
             "user_calendar_syncs": _FakeCollection(),
         }
@@ -280,6 +281,48 @@ async def test_get_user_calendar_lists_saved_items_and_sync_state() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_user_calendar_backfills_existing_registrations() -> None:
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.get("/users/7/calendar")
+
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["event_id"] == 1
+    saved = await db["user_calendar_entries"].find_one({"user_id": 7, "event_id": 1})
+    assert saved is not None
+
+
+@pytest.mark.asyncio
+async def test_get_event_calendar_status_backfills_existing_registration() -> None:
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.get("/events/1/calendar")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "event_id": 1,
+        "in_calendar": True,
+        "google_sync_enabled": False,
+    }
+    saved = await db["user_calendar_entries"].find_one({"user_id": 7, "event_id": 1})
+    assert saved is not None
+
+
+@pytest.mark.asyncio
 async def test_sync_saved_calendar_to_google_backfills_existing_entries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -343,6 +386,54 @@ async def test_sync_saved_calendar_to_google_backfills_existing_entries(
         "start": {"dateTime": "2026-06-15T19:00:00+00:00"},
         "end": {"dateTime": "2026-06-15T22:00:00+00:00"},
     }
+
+
+@pytest.mark.asyncio
+async def test_sync_saved_calendar_to_google_backfills_existing_registration_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    create_google_calendar_event = AsyncMock(
+        return_value={
+            "id": "google-event-1",
+            "htmlLink": "https://calendar.google.com/calendar/event?eid=1",
+        }
+    )
+
+    with (
+        patch.object(
+            users_routes,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            users_routes,
+            "create_google_calendar_event",
+            create_google_calendar_event,
+        ),
+    ):
+        async with client:
+            resp = await client.post("/users/7/calendar/sync/google")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "google_sync_enabled": True,
+        "synced_count": 1,
+        "skipped_count": 0,
+        "status": "enabled",
+    }
+    saved = await db["user_calendar_entries"].find_one({"user_id": 7, "event_id": 1})
+    assert saved is not None
+    assert saved["google_calendar_event_id"] == "google-event-1"
+    create_google_calendar_event.assert_awaited_once()
 
 
 @pytest.mark.asyncio

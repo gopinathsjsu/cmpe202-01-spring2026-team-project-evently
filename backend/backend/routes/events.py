@@ -375,6 +375,18 @@ async def _calendar_entry_for_user(
     )
 
 
+async def _attendance_status_for_user(
+    db: AsyncDatabase[dict[str, Any]], *, user_id: int, event_id: int
+) -> str | None:
+    attendance = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": user_id},
+        sort=[("_id", DESCENDING)],
+    )
+    if attendance is None:
+        return None
+    return _string_value(attendance.get("status"))
+
+
 async def _create_google_calendar_sync_fields(
     request: Request, event: Event
 ) -> dict[str, object]:
@@ -675,6 +687,23 @@ async def get_my_calendar_status(
     existing = await _calendar_entry_for_user(
         db, user_id=current_user.id, event_id=event_id
     )
+    if existing is None:
+        attendance_status = await _attendance_status_for_user(
+            db, user_id=current_user.id, event_id=event_id
+        )
+        if (
+            attendance_status is not None
+            and attendance_status != AttendanceStatus.Cancelled.value
+        ):
+            await db[USER_CALENDAR_COLLECTION].insert_one(
+                {
+                    "user_id": current_user.id,
+                    "event_id": event_id,
+                    "added_at": datetime.now(tz=UTC),
+                }
+            )
+            existing = {"user_id": current_user.id, "event_id": event_id}
+
     return AppCalendarStatusResponse(
         event_id=event_id,
         in_calendar=existing is not None,
