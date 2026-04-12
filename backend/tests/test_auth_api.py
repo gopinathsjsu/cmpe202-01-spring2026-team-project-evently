@@ -71,11 +71,18 @@ class _FakeCollection:
                 return
 
     async def update_one(
-        self, query: dict[str, object], update: dict[str, dict[str, object]]
+        self,
+        query: dict[str, object],
+        update: dict[str, dict[str, object]],
+        *,
+        upsert: bool = False,
     ) -> None:
         doc = await self.find_one(query)
         if doc is None:
-            return
+            if not upsert:
+                return
+            doc = dict(query)
+            self._docs.append(doc)
 
         for key, value in update.get("$set", {}).items():
             doc[key] = value
@@ -120,14 +127,14 @@ def clear_oauth_cache() -> Iterator[None]:
 def _session_state(
     *,
     oauth_user: object | None = None,
-    oauth_token: object | None = None,
+    oauth_token_session_id: object | None = None,
     evently_user_id: object | None = None,
     pending_signup: object | None = None,
     post_auth_redirect: object | None = None,
 ) -> dict[str, object | None]:
     return {
         auth_routes._OAUTH_USER_SESSION_KEY: oauth_user,
-        auth_routes._OAUTH_TOKEN_SESSION_KEY: oauth_token,
+        auth_routes._OAUTH_TOKEN_SESSION_ID_KEY: oauth_token_session_id,
         auth_routes._EVENTLY_USER_SESSION_KEY: evently_user_id,
         auth_routes._PENDING_SIGNUP_SESSION_KEY: pending_signup,
         auth_routes._POST_AUTH_REDIRECT_KEY: post_auth_redirect,
@@ -146,8 +153,8 @@ def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
             auth_routes._OAUTH_USER_SESSION_KEY: request.session.get(
                 auth_routes._OAUTH_USER_SESSION_KEY
             ),
-            auth_routes._OAUTH_TOKEN_SESSION_KEY: request.session.get(
-                auth_routes._OAUTH_TOKEN_SESSION_KEY
+            auth_routes._OAUTH_TOKEN_SESSION_ID_KEY: request.session.get(
+                auth_routes._OAUTH_TOKEN_SESSION_ID_KEY
             ),
             auth_routes._EVENTLY_USER_SESSION_KEY: request.session.get(
                 auth_routes._EVENTLY_USER_SESSION_KEY
@@ -170,6 +177,39 @@ def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
                 continue
             request.session[key] = value
         return await read_session(request)
+
+    @app.get("/_test/oauth-token")
+    async def read_oauth_token(request: Request) -> dict[str, object | None]:
+        session_id = request.session.get(auth_routes._OAUTH_TOKEN_SESSION_ID_KEY)
+        if not isinstance(session_id, str):
+            return {"token": None}
+        stored = await fake_db[auth_routes._OAUTH_TOKEN_COLLECTION].find_one(
+            {"_id": session_id}
+        )
+        if stored is None:
+            return {"token": None}
+        return {"token": stored.get("token")}
+
+    @app.post("/_test/oauth-token")
+    async def write_oauth_token(
+        request: Request, payload: dict[str, object | None]
+    ) -> dict[str, object | None]:
+        session_id = payload.get("session_id")
+        token = payload.get("token")
+        if not isinstance(session_id, str):
+            return {"token": None}
+        request.session[auth_routes._OAUTH_TOKEN_SESSION_ID_KEY] = session_id
+        if token is None:
+            await fake_db[auth_routes._OAUTH_TOKEN_COLLECTION].delete_one(
+                {"_id": session_id}
+            )
+            return {"token": None}
+        await fake_db[auth_routes._OAUTH_TOKEN_COLLECTION].update_one(
+            {"_id": session_id},
+            {"$set": {"token": token}},
+            upsert=True,
+        )
+        return {"token": token}
 
     @app.get("/_test/google-calendar-access-token")
     async def read_google_calendar_access_token(request: Request) -> dict[str, str]:
@@ -262,25 +302,26 @@ async def test_callback_stores_pending_signup_session_for_new_google_user() -> N
         async with client:
             resp = await client.get("/auth/callback")
             session_resp = await client.get("/_test/session")
+            token_store_resp = await client.get("/_test/oauth-token")
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "/complete-signup"
     session_data = session_resp.json()
     assert session_data == _session_state(
         oauth_user=userinfo,
-        oauth_token=session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY],
+        oauth_token_session_id=session_data[auth_routes._OAUTH_TOKEN_SESSION_ID_KEY],
         pending_signup=True,
     )
-    assert session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY] == {
+    stored_token = token_store_resp.json()["token"]
+    assert isinstance(session_data[auth_routes._OAUTH_TOKEN_SESSION_ID_KEY], str)
+    assert stored_token == {
         "access_token": "google-access-token",
         "refresh_token": "google-refresh-token",
         "token_type": "Bearer",
         "scope": auth_routes.GOOGLE_OAUTH_SCOPE,
-        "expires_at": session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY]["expires_at"],
+        "expires_at": stored_token["expires_at"],
     }
-    assert isinstance(
-        session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY]["expires_at"], int
-    )
+    assert isinstance(stored_token["expires_at"], int)
 
 
 @pytest.mark.asyncio
@@ -308,16 +349,24 @@ async def test_google_calendar_access_token_refreshes_when_session_token_is_expi
     ) as refresh_oauth_token:
         async with client:
             await client.post(
+                "/_test/oauth-token",
+                json={"session_id": "token-session-1", "token": expired_token},
+            )
+            await client.post(
                 "/_test/session",
-                json=_session_state(oauth_token=expired_token),
+                json=_session_state(oauth_token_session_id="token-session-1"),
             )
             token_resp = await client.get("/_test/google-calendar-access-token")
             session_resp = await client.get("/_test/session")
+            stored_token_resp = await client.get("/_test/oauth-token")
 
     assert refresh_oauth_token.await_count == 1
     assert token_resp.status_code == 200
     assert token_resp.json() == {"access_token": "fresh-access-token"}
-    assert session_resp.json() == _session_state(oauth_token=refreshed_token)
+    assert session_resp.json() == _session_state(
+        oauth_token_session_id="token-session-1"
+    )
+    assert stored_token_resp.json() == {"token": refreshed_token}
 
 
 @pytest.mark.asyncio
@@ -446,27 +495,33 @@ async def test_logout_clears_session_and_redirects_home() -> None:
     }
     oauth_token = {"access_token": "google-access-token"}
     async with client:
+        await client.post(
+            "/_test/oauth-token",
+            json={"session_id": "token-session-logout", "token": oauth_token},
+        )
         before_logout = await client.post(
             "/_test/session",
             json=_session_state(
                 oauth_user=userinfo,
-                oauth_token=oauth_token,
+                oauth_token_session_id="token-session-logout",
                 evently_user_id=7,
                 post_auth_redirect="http://localhost:3000/create",
             ),
         )
         resp = await client.get("/auth/logout")
         after_logout = await client.get("/_test/session")
+        token_store_resp = await client.get("/_test/oauth-token")
 
     assert before_logout.json() == _session_state(
         oauth_user=userinfo,
-        oauth_token=oauth_token,
+        oauth_token_session_id="token-session-logout",
         evently_user_id=7,
         post_auth_redirect="http://localhost:3000/create",
     )
     assert resp.status_code == 307
     assert resp.headers["location"] == "/"
     assert after_logout.json() == _session_state()
+    assert token_store_resp.json() == {"token": None}
 
 
 @pytest.mark.asyncio

@@ -1028,10 +1028,15 @@ async def ensure_required_startup_users(db: Any) -> None:
 
     for required in REQUIRED_STARTUP_USERS:
         existing = await db["users"].find_one({"email": required["email"]})
-        if existing is None:
-            existing = await db["users"].find_one({"username": required["username"]})
+        username_owner = await db["users"].find_one({"username": required["username"]})
 
         if existing is None:
+            if username_owner is not None:
+                raise RuntimeError(
+                    "Cannot safely provision required startup user "
+                    f"{required['email']}: username {required['username']} is already "
+                    "owned by a different account."
+                )
             if next_user_id is None:
                 next_user_id = await _next_available_user_id(db)
             await db["users"].insert_one(
@@ -1060,7 +1065,16 @@ async def ensure_required_startup_users(db: Any) -> None:
             continue
 
         updates: dict[str, Any] = {}
-        for field in ("email", "first_name", "last_name", "username"):
+        if username_owner is not None and username_owner.get("id") != existing.get(
+            "id"
+        ):
+            raise RuntimeError(
+                "Cannot safely update required startup user "
+                f"{required['email']}: username {required['username']} is already "
+                "owned by a different account."
+            )
+
+        for field in ("first_name", "last_name", "username"):
             if existing.get(field) != required[field]:
                 updates[field] = required[field]
 

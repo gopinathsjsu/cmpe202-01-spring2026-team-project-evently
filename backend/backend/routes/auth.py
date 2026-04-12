@@ -1,5 +1,6 @@
 import logging
 import re
+import uuid
 from collections.abc import Mapping
 from functools import lru_cache
 from os import getenv
@@ -32,10 +33,11 @@ OAUTH_INVALID_IDENTITY = "Google account is missing required verified identity c
 USERNAME_SANITIZER = re.compile(r"[^a-z0-9_]+")
 
 _OAUTH_USER_SESSION_KEY = "user"
-_OAUTH_TOKEN_SESSION_KEY = "oauth_token"
+_OAUTH_TOKEN_SESSION_ID_KEY = "oauth_token_session_id"
 _EVENTLY_USER_SESSION_KEY = "evently_user_id"
 _POST_AUTH_REDIRECT_KEY = "post_auth_redirect"
 _PENDING_SIGNUP_SESSION_KEY = "pending_signup"
+_OAUTH_TOKEN_COLLECTION = "oauth_tokens"
 
 DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 
@@ -163,6 +165,15 @@ def _string_value(value: object) -> str | None:
         normalized = value.strip()
         return normalized or None
     return None
+
+
+def _session_token_store_id(request: Request) -> str:
+    existing = request.session.get(_OAUTH_TOKEN_SESSION_ID_KEY)
+    if isinstance(existing, str) and existing.strip():
+        return existing
+    session_id = uuid.uuid4().hex
+    request.session[_OAUTH_TOKEN_SESSION_ID_KEY] = session_id
+    return session_id
 
 
 def _bool_value(value: object) -> bool | None:
@@ -305,8 +316,49 @@ async def _refresh_oauth_token(token: Mapping[str, object]) -> dict[str, object]
     return refreshed
 
 
+async def _store_oauth_token(
+    db: AsyncDatabase[dict[str, Any]],
+    request: Request,
+    token: Mapping[str, object],
+    *,
+    previous: Mapping[str, object] | None = None,
+) -> None:
+    serialized = _serialized_oauth_token(token, previous=previous)
+    if serialized is None:
+        await _clear_oauth_token(db, request)
+        return
+
+    session_id = _session_token_store_id(request)
+    await db[_OAUTH_TOKEN_COLLECTION].update_one(
+        {"_id": session_id},
+        {"$set": {"token": dict(serialized)}},
+        upsert=True,
+    )
+
+
+async def _load_oauth_token(
+    db: AsyncDatabase[dict[str, Any]], request: Request
+) -> Mapping[str, object] | None:
+    session_id = request.session.get(_OAUTH_TOKEN_SESSION_ID_KEY)
+    if not isinstance(session_id, str) or not session_id.strip():
+        return None
+    stored = await db[_OAUTH_TOKEN_COLLECTION].find_one({"_id": session_id})
+    if not isinstance(stored, Mapping):
+        return None
+    return _stored_oauth_token(stored.get("token"))
+
+
+async def _clear_oauth_token(
+    db: AsyncDatabase[dict[str, Any]], request: Request
+) -> None:
+    session_id = request.session.pop(_OAUTH_TOKEN_SESSION_ID_KEY, None)
+    if isinstance(session_id, str) and session_id.strip():
+        await db[_OAUTH_TOKEN_COLLECTION].delete_one({"_id": session_id})
+
+
 async def get_google_calendar_access_token(request: Request) -> str:
-    stored_token = _stored_oauth_token(request.session.get(_OAUTH_TOKEN_SESSION_KEY))
+    db = cast(AsyncDatabase[dict[str, Any]], request.app.state.db)
+    stored_token = await _load_oauth_token(db, request)
     if stored_token is None:
         raise HTTPException(
             status_code=403,
@@ -320,8 +372,9 @@ async def get_google_calendar_access_token(request: Request) -> str:
         )
 
     if _oauth_token_needs_refresh(stored_token):
-        stored_token = await _refresh_oauth_token(stored_token)
-        request.session[_OAUTH_TOKEN_SESSION_KEY] = dict(stored_token)
+        refreshed = await _refresh_oauth_token(stored_token)
+        await _store_oauth_token(db, request, refreshed, previous=stored_token)
+        stored_token = refreshed
 
     access_token = _string_value(stored_token.get("access_token"))
     if access_token is None:
@@ -731,10 +784,7 @@ async def auth(request: Request, db: DbDep) -> RedirectResponse:
         raise HTTPException(status_code=400, detail=OAUTH_INVALID_IDENTITY)
 
     request.session[_OAUTH_USER_SESSION_KEY] = dict(user)
-    if serialized_token := _serialized_oauth_token(token):
-        request.session[_OAUTH_TOKEN_SESSION_KEY] = serialized_token
-    else:
-        request.session.pop(_OAUTH_TOKEN_SESSION_KEY, None)
+    await _store_oauth_token(db, request, token)
 
     local_user = await _resolve_existing_local_user(db, user)
     if local_user is None:
@@ -753,8 +803,9 @@ async def auth(request: Request, db: DbDep) -> RedirectResponse:
 async def login(request: Request) -> RedirectResponse:
     """Initiate the OAuth login flow by redirecting to Google's authorization endpoint."""
     google_client = get_google_client()
+    db = cast(AsyncDatabase[dict[str, Any]], request.app.state.db)
     request.session.pop(_OAUTH_USER_SESSION_KEY, None)
-    request.session.pop(_OAUTH_TOKEN_SESSION_KEY, None)
+    await _clear_oauth_token(db, request)
     request.session.pop(_EVENTLY_USER_SESSION_KEY, None)
     request.session.pop(_PENDING_SIGNUP_SESSION_KEY, None)
     request.session[_POST_AUTH_REDIRECT_KEY] = _resolve_redirect_target(request)
@@ -774,8 +825,9 @@ async def login(request: Request) -> RedirectResponse:
 @router.get("/logout")
 async def logout(request: Request) -> RedirectResponse:
     """Log the user out by clearing the session and redirecting to the homepage."""
+    db = cast(AsyncDatabase[dict[str, Any]], request.app.state.db)
     request.session.pop(_OAUTH_USER_SESSION_KEY, None)
-    request.session.pop(_OAUTH_TOKEN_SESSION_KEY, None)
+    await _clear_oauth_token(db, request)
     request.session.pop(_EVENTLY_USER_SESSION_KEY, None)
     request.session.pop(_PENDING_SIGNUP_SESSION_KEY, None)
     request.session.pop(_POST_AUTH_REDIRECT_KEY, None)
