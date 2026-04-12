@@ -28,22 +28,6 @@ function formatTime(iso: string): string {
   });
 }
 
-function buildGoogleCalendarUrl(event: EventDetail): string {
-  const fmt = (iso: string) => new Date(iso).toISOString().replace(/[-:]|\.\d{3}/g, "");
-  const location = event.is_online
-    ? "Online"
-    : `${event.location.venue_name ?? ""} ${event.location.address}, ${event.location.city}, ${event.location.state} ${event.location.zip_code}`.trim();
-
-  const params = new URLSearchParams({
-    action: "TEMPLATE",
-    text: event.title,
-    dates: `${fmt(event.start_time)}/${fmt(event.end_time)}`,
-    details: event.about.slice(0, 500),
-    location,
-  });
-  return `https://calendar.google.com/calendar/render?${params}`;
-}
-
 async function buildEventShareUrl(eventId: string): Promise<string> {
   const requestHeaders = await headers();
   const host =
@@ -260,9 +244,7 @@ export default async function EventDetailPage({
               </div>
 
               <RegistrationCard
-                addToCalendarUrl={buildGoogleCalendarUrl(event)}
                 eventId={event.id}
-                organizerUserId={event.organizer_user_id}
                 price={event.price}
                 spotsLeft={spotsLeft}
               />

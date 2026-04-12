@@ -3,9 +3,11 @@ import re
 from collections.abc import Mapping
 from functools import lru_cache
 from os import getenv
+from time import time
 from typing import Annotated, Any, Protocol, TypeGuard, cast
 from urllib.parse import urlsplit, urlunsplit
 
+import httpx
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -21,12 +23,16 @@ from backend.db import get_db
 from backend.models.user import GlobalRole, User
 
 CONF_URL = "https://accounts.google.com/.well-known/openid-configuration"
+GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+GOOGLE_OAUTH_SCOPE = f"openid email profile {GOOGLE_CALENDAR_SCOPE}"
+GOOGLE_TOKEN_REFRESH_URL = "https://oauth2.googleapis.com/token"
 
 OAUTH_NOT_CONFIGURED = "Google OAuth is not configured"
 OAUTH_INVALID_IDENTITY = "Google account is missing required verified identity claims"
 USERNAME_SANITIZER = re.compile(r"[^a-z0-9_]+")
 
 _OAUTH_USER_SESSION_KEY = "user"
+_OAUTH_TOKEN_SESSION_KEY = "oauth_token"
 _EVENTLY_USER_SESSION_KEY = "evently_user_id"
 _POST_AUTH_REDIRECT_KEY = "post_auth_redirect"
 
@@ -70,9 +76,12 @@ class GoogleOAuthClientAdapter:
         return await self._client.authorize_access_token(request)
 
     async def authorize_redirect(
-        self, request: Request, redirect_uri: str | URL
+        self,
+        request: Request,
+        redirect_uri: str | URL,
+        **kwargs: object,
     ) -> object:
-        return await self._client.authorize_redirect(request, redirect_uri)
+        return await self._client.authorize_redirect(request, redirect_uri, **kwargs)
 
 
 def is_google_userinfo(value: object) -> TypeGuard[Mapping[str, object]]:
@@ -130,6 +139,158 @@ def _bool_value(value: object) -> bool | None:
 
 def _normalized_email(value: str) -> str:
     return value.strip().strip("\"'").lower()
+
+
+def _serialized_oauth_token(
+    token: Mapping[str, object], *, previous: Mapping[str, object] | None = None
+) -> dict[str, object] | None:
+    access_token = _string_value(token.get("access_token"))
+    if access_token is None:
+        return None
+
+    serialized: dict[str, object] = {"access_token": access_token}
+
+    if previous is None:
+        previous = {}
+
+    if token_type := (
+        _string_value(token.get("token_type"))
+        or _string_value(previous.get("token_type"))
+    ):
+        serialized["token_type"] = token_type
+
+    if scope := _string_value(token.get("scope")) or _string_value(
+        previous.get("scope")
+    ):
+        serialized["scope"] = scope
+
+    if refresh_token := _string_value(token.get("refresh_token")) or _string_value(
+        previous.get("refresh_token")
+    ):
+        serialized["refresh_token"] = refresh_token
+
+    expires_at = token.get("expires_at")
+    if isinstance(expires_at, int | float):
+        serialized["expires_at"] = int(expires_at)
+    else:
+        expires_in = token.get("expires_in")
+        if isinstance(expires_in, int | float):
+            serialized["expires_at"] = int(time()) + int(expires_in)
+        elif isinstance(previous_expires_at := previous.get("expires_at"), int | float):
+            serialized["expires_at"] = int(previous_expires_at)
+
+    return serialized
+
+
+def _stored_oauth_token(value: object) -> Mapping[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    access_token = value.get("access_token")
+    if not isinstance(access_token, str) or not access_token.strip():
+        return None
+    return value
+
+
+def _oauth_token_has_scope(token: Mapping[str, object], required_scope: str) -> bool:
+    scope = _string_value(token.get("scope"))
+    if scope is None:
+        return True
+    return required_scope in scope.split()
+
+
+def _oauth_token_needs_refresh(token: Mapping[str, object]) -> bool:
+    expires_at = token.get("expires_at")
+    if not isinstance(expires_at, int | float):
+        return False
+    return time() >= float(expires_at) - 60
+
+
+async def _refresh_oauth_token(token: Mapping[str, object]) -> dict[str, object]:
+    refresh_token = _string_value(token.get("refresh_token"))
+    if refresh_token is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Google Calendar access has expired. Please sign in again.",
+        )
+
+    client_id = getenv("OAUTH_CLIENT_ID")
+    client_secret = getenv("OAUTH_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=503, detail=OAUTH_NOT_CONFIGURED)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                GOOGLE_TOKEN_REFRESH_URL,
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+            )
+    except httpx.HTTPError as exc:
+        logging.getLogger(__name__).error("Google token refresh failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Could not refresh Google Calendar access.",
+        ) from exc
+
+    if response.status_code in {400, 401}:
+        raise HTTPException(
+            status_code=403,
+            detail="Google Calendar access has expired. Please sign in again.",
+        )
+
+    if not response.is_success:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not refresh Google Calendar access.",
+        )
+
+    payload = response.json()
+    if not isinstance(payload, Mapping):
+        raise HTTPException(
+            status_code=502,
+            detail="Could not refresh Google Calendar access.",
+        )
+
+    refreshed = _serialized_oauth_token(payload, previous=token)
+    if refreshed is None:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not refresh Google Calendar access.",
+        )
+
+    return refreshed
+
+
+async def get_google_calendar_access_token(request: Request) -> str:
+    stored_token = _stored_oauth_token(request.session.get(_OAUTH_TOKEN_SESSION_KEY))
+    if stored_token is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Google Calendar access is not available for this session. Please sign in again.",
+        )
+
+    if not _oauth_token_has_scope(stored_token, GOOGLE_CALENDAR_SCOPE):
+        raise HTTPException(
+            status_code=403,
+            detail="Google Calendar permission has not been granted. Please sign in again.",
+        )
+
+    if _oauth_token_needs_refresh(stored_token):
+        stored_token = await _refresh_oauth_token(stored_token)
+        request.session[_OAUTH_TOKEN_SESSION_KEY] = dict(stored_token)
+
+    access_token = _string_value(stored_token.get("access_token"))
+    if access_token is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Google Calendar access is not available for this session. Please sign in again.",
+        )
+
+    return access_token
 
 
 def _oauth_subject(userinfo: Mapping[str, object]) -> str | None:
@@ -446,7 +607,7 @@ def get_oauth() -> OAuth:
     oauth.register(
         name="google",
         server_metadata_url=CONF_URL,
-        client_kwargs={"scope": "openid email profile"},
+        client_kwargs={"scope": GOOGLE_OAUTH_SCOPE},
     )
     return oauth
 
@@ -486,6 +647,10 @@ async def auth(request: Request, db: DbDep) -> RedirectResponse:
         raise HTTPException(status_code=400, detail=OAUTH_INVALID_IDENTITY)
 
     request.session[_OAUTH_USER_SESSION_KEY] = dict(user)
+    if serialized_token := _serialized_oauth_token(token):
+        request.session[_OAUTH_TOKEN_SESSION_KEY] = serialized_token
+    else:
+        request.session.pop(_OAUTH_TOKEN_SESSION_KEY, None)
     request.session[_EVENTLY_USER_SESSION_KEY] = local_user.id
 
     redirect_to = request.session.pop(_POST_AUTH_REDIRECT_KEY, "/")
@@ -498,10 +663,14 @@ async def login(request: Request) -> RedirectResponse:
     """Initiate the OAuth login flow by redirecting to Google's authorization endpoint."""
     google_client = get_google_client()
     request.session.pop(_OAUTH_USER_SESSION_KEY, None)
+    request.session.pop(_OAUTH_TOKEN_SESSION_KEY, None)
     request.session.pop(_EVENTLY_USER_SESSION_KEY, None)
     request.session[_POST_AUTH_REDIRECT_KEY] = _resolve_redirect_target(request)
     redir = await google_client.authorize_redirect(
-        request, str(request.url_for("auth"))
+        request,
+        str(request.url_for("auth")),
+        access_type="offline",
+        include_granted_scopes="true",
     )
     if not isinstance(redir, RedirectResponse):
         raise HTTPException(
@@ -514,6 +683,7 @@ async def login(request: Request) -> RedirectResponse:
 async def logout(request: Request) -> RedirectResponse:
     """Log the user out by clearing the session and redirecting to the homepage."""
     request.session.pop(_OAUTH_USER_SESSION_KEY, None)
+    request.session.pop(_OAUTH_TOKEN_SESSION_KEY, None)
     request.session.pop(_EVENTLY_USER_SESSION_KEY, None)
     request.session.pop(_POST_AUTH_REDIRECT_KEY, None)
     return RedirectResponse(url=_resolve_redirect_target(request))

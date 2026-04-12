@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -7,6 +8,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from backend.api import create_app
 from backend.db import get_db
+from backend.routes import events as events_route
 from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 
@@ -36,7 +38,14 @@ def _auth_user(user_id: int = 1) -> AuthSessionUser:
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
-    for coll in ("events", "attendance", "event_favorites", "counters"):
+    for coll in (
+        "events",
+        "attendance",
+        "event_favorites",
+        "counters",
+        "user_calendar_entries",
+        "user_calendar_syncs",
+    ):
         await db[coll].delete_many({})
 
 
@@ -151,7 +160,13 @@ async def test_register_event_attendance_creates_registration(
         resp = await client.post("/events/1/attendance")
 
     assert resp.status_code == 200
-    assert resp.json() == {"event_id": 1, "user_id": 7, "status": "going"}
+    assert resp.json() == {
+        "event_id": 1,
+        "user_id": 7,
+        "status": "going",
+        "in_calendar": True,
+        "google_synced": False,
+    }
 
     saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
     assert saved is not None
@@ -159,6 +174,10 @@ async def test_register_event_attendance_creates_registration(
     event = await db["events"].find_one({"id": 1})
     assert event is not None
     assert event["registered_count"] == 1
+    calendar_entry = await db["user_calendar_entries"].find_one(
+        {"event_id": 1, "user_id": 7}
+    )
+    assert calendar_entry is not None
 
 
 @pytest.mark.asyncio
@@ -176,7 +195,13 @@ async def test_register_event_attendance_restores_cancelled_registration(
         resp = await client.post("/events/1/attendance")
 
     assert resp.status_code == 200
-    assert resp.json() == {"event_id": 1, "user_id": 7, "status": "going"}
+    assert resp.json() == {
+        "event_id": 1,
+        "user_id": 7,
+        "status": "going",
+        "in_calendar": True,
+        "google_synced": False,
+    }
 
     saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
     assert saved is not None
@@ -184,6 +209,10 @@ async def test_register_event_attendance_restores_cancelled_registration(
     event = await db["events"].find_one({"id": 1})
     assert event is not None
     assert event["registered_count"] == 1
+    calendar_entry = await db["user_calendar_entries"].find_one(
+        {"event_id": 1, "user_id": 7}
+    )
+    assert calendar_entry is not None
 
 
 @pytest.mark.asyncio
@@ -259,13 +288,22 @@ async def test_cancel_event_attendance_marks_registration_cancelled(
     await db["attendance"].insert_one(
         {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
     )
+    await db["user_calendar_entries"].insert_one(
+        {"event_id": 1, "user_id": 7, "added_at": datetime(2026, 6, 1, 12, 0, 0)}
+    )
 
     _, client = _make_client(db, _auth_user(7))
     async with client:
         resp = await client.delete("/events/1/attendance")
 
     assert resp.status_code == 200
-    assert resp.json() == {"event_id": 1, "user_id": 7, "status": "cancelled"}
+    assert resp.json() == {
+        "event_id": 1,
+        "user_id": 7,
+        "status": "cancelled",
+        "in_calendar": False,
+        "google_synced": False,
+    }
 
     saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
     assert saved is not None
@@ -274,6 +312,104 @@ async def test_cancel_event_attendance_marks_registration_cancelled(
     event = await db["events"].find_one({"id": 1})
     assert event is not None
     assert event["registered_count"] == 0
+    calendar_entry = await db["user_calendar_entries"].find_one(
+        {"event_id": 1, "user_id": 7}
+    )
+    assert calendar_entry is None
+
+
+@pytest.mark.asyncio
+async def test_register_event_attendance_syncs_google_calendar_when_enabled(
+    db: AsyncDatabase[dict[str, Any]],
+    event_data: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _clean(db)
+    monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
+    await db["events"].insert_one({**event_data, "registered_count": 0})
+    await db["user_calendar_syncs"].insert_one(
+        {"user_id": 7, "google_sync_enabled": True}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    with (
+        patch.object(
+            events_route,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            events_route,
+            "create_google_calendar_event",
+            AsyncMock(return_value={"id": "google-event-1"}),
+        ),
+    ):
+        async with client:
+            resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "event_id": 1,
+        "user_id": 7,
+        "status": "going",
+        "in_calendar": True,
+        "google_synced": True,
+    }
+
+    calendar_entry = await db["user_calendar_entries"].find_one(
+        {"event_id": 1, "user_id": 7}
+    )
+    assert calendar_entry is not None
+    assert calendar_entry["google_calendar_event_id"] == "google-event-1"
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_attendance_removes_google_calendar_event_when_synced(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "registered_count": 1})
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+    await db["user_calendar_entries"].insert_one(
+        {
+            "event_id": 1,
+            "user_id": 7,
+            "added_at": datetime(2026, 6, 1, 12, 0, 0),
+            "google_calendar_event_id": "google-event-1",
+        }
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    delete_google_calendar_event = AsyncMock(return_value=None)
+    with (
+        patch.object(
+            events_route,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            events_route,
+            "delete_google_calendar_event",
+            delete_google_calendar_event,
+        ),
+    ):
+        async with client:
+            resp = await client.delete("/events/1/attendance")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "event_id": 1,
+        "user_id": 7,
+        "status": "cancelled",
+        "in_calendar": False,
+        "google_synced": True,
+    }
+    delete_google_calendar_event.assert_awaited_once_with(
+        "google-access-token",
+        "google-event-1",
+    )
 
 
 @pytest.mark.asyncio

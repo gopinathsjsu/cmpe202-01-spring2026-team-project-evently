@@ -2,16 +2,29 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel, EmailStr
 from pymongo.asynchronous.database import AsyncDatabase
+from starlette.requests import Request
 
+from backend.app_config import get_frontend_settings
 from backend.db import get_db
+from backend.models.attendance import AttendanceStatus
+from backend.models.event import Event
 from backend.models.user import GlobalRole, User, UserProfile
-from backend.routes.auth import AuthSessionUser, require_authenticated_user
+from backend.routes.auth import (
+    AuthSessionUser,
+    get_google_calendar_access_token,
+    require_authenticated_user,
+)
+from backend.services.calendar_sync import (
+    create_google_calendar_event,
+    delete_google_calendar_event,
+    google_calendar_event_payload,
+)
 
 router = APIRouter()
 
@@ -22,6 +35,8 @@ UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/gif"}
 ALLOWED_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
 MAX_PHOTO_SIZE = 5 * 1024 * 1024  # 5 MB
+USER_CALENDAR_COLLECTION = "user_calendar_entries"
+USER_CALENDAR_SYNC_COLLECTION = "user_calendar_syncs"
 
 # ---------------------------------------------------------------------------
 # Response schemas
@@ -101,6 +116,35 @@ class ActivityItem(BaseModel):
 
 class ActivityResponse(BaseModel):
     items: list[ActivityItem]
+
+
+class CalendarItem(BaseModel):
+    event_id: int
+    event_title: str
+    event_image_url: str | None
+    start_time: datetime
+    end_time: datetime | None = None
+    added_at: datetime
+    google_synced: bool = False
+    google_calendar_event_url: str | None = None
+
+
+class CalendarResponse(BaseModel):
+    items: list[CalendarItem]
+    google_sync_enabled: bool = False
+
+
+class GoogleCalendarSyncResponse(BaseModel):
+    google_sync_enabled: bool = True
+    synced_count: int
+    skipped_count: int
+    status: Literal["enabled"] = "enabled"
+
+
+class GoogleCalendarUnsyncResponse(BaseModel):
+    google_sync_enabled: bool = False
+    unsynced_count: int
+    status: Literal["disabled"] = "disabled"
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +261,151 @@ def _ensure_same_user(current_user: AuthSessionUser, user_id: int) -> None:
         )
 
 
+def _string_value(value: object) -> str | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        return normalized or None
+    return None
+
+
+def _frontend_event_url(request: Request, event_id: int) -> str | None:
+    frontend_settings = get_frontend_settings(request.app)
+    if frontend_settings.primary_origin:
+        return f"{frontend_settings.primary_origin}/events/{event_id}"
+    if frontend_settings.allowed_origins:
+        return f"{frontend_settings.allowed_origins[0]}/events/{event_id}"
+    return None
+
+
+async def _google_sync_enabled(db: AsyncDatabase[dict[str, Any]], user_id: int) -> bool:
+    raw = await db[USER_CALENDAR_SYNC_COLLECTION].find_one({"user_id": user_id})
+    return raw is not None and raw.get("google_sync_enabled") is True
+
+
+async def _set_google_sync_enabled(
+    db: AsyncDatabase[dict[str, Any]], user_id: int, enabled: bool
+) -> None:
+    await db[USER_CALENDAR_SYNC_COLLECTION].update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "google_sync_enabled": enabled,
+                "updated_at": datetime.now(tz=UTC),
+            }
+        },
+        upsert=True,
+    )
+
+
+async def _calendar_entries_for_user(
+    db: AsyncDatabase[dict[str, Any]], user_id: int
+) -> list[dict[str, Any]]:
+    return await (
+        db[USER_CALENDAR_COLLECTION]
+        .find({"user_id": user_id})
+        .sort("added_at", -1)
+        .to_list(length=None)
+    )
+
+
+async def _events_by_id(
+    db: AsyncDatabase[dict[str, Any]], event_ids: list[int]
+) -> dict[int, Event]:
+    events: dict[int, Event] = {}
+    if not event_ids:
+        return events
+
+    async for raw_event in db["events"].find({"id": {"$in": event_ids}}):
+        event = Event(**raw_event)
+        events[event.id] = event
+    return events
+
+
+async def _backfill_registered_calendar_entries(
+    db: AsyncDatabase[dict[str, Any]], user_id: int
+) -> None:
+    existing_entries = await _calendar_entries_for_user(db, user_id)
+    existing_event_ids = {
+        int(entry["event_id"])
+        for entry in existing_entries
+        if isinstance(entry.get("event_id"), int)
+    }
+
+    attendance_records = await (
+        db["attendance"].find({"user_id": user_id}).sort("_id", -1).to_list(length=None)
+    )
+    latest_status_by_event: dict[int, str | None] = {}
+    for record in attendance_records:
+        event_id = record.get("event_id")
+        if not isinstance(event_id, int) or event_id in latest_status_by_event:
+            continue
+        latest_status_by_event[event_id] = _string_value(record.get("status"))
+
+    missing_event_ids = [
+        event_id
+        for event_id, status in latest_status_by_event.items()
+        if status is not None
+        and status != AttendanceStatus.Cancelled.value
+        and event_id not in existing_event_ids
+    ]
+    if not missing_event_ids:
+        return
+
+    events = await _events_by_id(db, missing_event_ids)
+    for event_id in missing_event_ids:
+        if event_id not in events:
+            continue
+        await db[USER_CALENDAR_COLLECTION].insert_one(
+            {
+                "user_id": user_id,
+                "event_id": event_id,
+                "added_at": datetime.now(tz=UTC),
+            }
+        )
+
+
+async def _build_calendar_response(
+    db: AsyncDatabase[dict[str, Any]], user_id: int
+) -> CalendarResponse:
+    await _backfill_registered_calendar_entries(db, user_id)
+    entries = await _calendar_entries_for_user(db, user_id)
+    events = await _events_by_id(db, [int(entry["event_id"]) for entry in entries])
+
+    items: list[CalendarItem] = []
+    for entry in entries:
+        event_id = int(entry["event_id"])
+        event = events.get(event_id)
+        if event is None:
+            continue
+
+        added_at = entry.get("added_at")
+        if not isinstance(added_at, datetime):
+            added_at = event.start_time
+
+        google_calendar_event_url = _string_value(
+            entry.get("google_calendar_event_url")
+        )
+        items.append(
+            CalendarItem(
+                event_id=event.id,
+                event_title=event.title,
+                event_image_url=event.image_url,
+                start_time=event.start_time,
+                end_time=event.end_time,
+                added_at=added_at,
+                google_synced=_string_value(entry.get("google_calendar_event_id"))
+                is not None,
+                google_calendar_event_url=google_calendar_event_url,
+            )
+        )
+
+    items.sort(key=lambda item: item.start_time)
+    return CalendarResponse(
+        items=items,
+        google_sync_enabled=await _google_sync_enabled(db, user_id),
+    )
+
+
 # ---------------------------------------------------------------------------
 # GET /users/{user_id}
 # ---------------------------------------------------------------------------
@@ -227,6 +416,140 @@ async def get_user(db: DbDep, user_id: int) -> PublicUserDetail:
     """Retrieve public details for a single user."""
     user = await _get_user_or_404(db, user_id)
     return await _build_public_user_detail(db, user)
+
+
+# ---------------------------------------------------------------------------
+# GET /users/{user_id}/calendar -- Saved app calendar items
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{user_id}/calendar", response_model=CalendarResponse)
+async def get_user_calendar(
+    db: DbDep, user_id: int, current_user: AuthUserDep
+) -> CalendarResponse:
+    _ensure_same_user(current_user, user_id)
+    await _get_user_or_404(db, user_id)
+    return await _build_calendar_response(db, user_id)
+
+
+# ---------------------------------------------------------------------------
+# POST /users/{user_id}/calendar/sync/google -- Enable + backfill Google sync
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{user_id}/calendar/sync/google",
+    response_model=GoogleCalendarSyncResponse,
+)
+async def sync_user_calendar_to_google(
+    db: DbDep,
+    request: Request,
+    user_id: int,
+    current_user: AuthUserDep,
+) -> GoogleCalendarSyncResponse:
+    _ensure_same_user(current_user, user_id)
+    await _get_user_or_404(db, user_id)
+
+    access_token = await get_google_calendar_access_token(request)
+    await _backfill_registered_calendar_entries(db, user_id)
+    entries = await _calendar_entries_for_user(db, user_id)
+    events = await _events_by_id(db, [int(entry["event_id"]) for entry in entries])
+
+    synced_count = 0
+    skipped_count = 0
+    for entry in entries:
+        if _string_value(entry.get("google_calendar_event_id")) is not None:
+            skipped_count += 1
+            continue
+
+        event = events.get(int(entry["event_id"]))
+        if event is None:
+            skipped_count += 1
+            continue
+
+        google_event = await create_google_calendar_event(
+            access_token,
+            google_calendar_event_payload(
+                event,
+                event_url=_frontend_event_url(request, event.id),
+            ),
+        )
+        google_event_id = _string_value(google_event.get("id"))
+        if google_event_id is None:
+            raise HTTPException(
+                status_code=502,
+                detail="Google Calendar returned an invalid response.",
+            )
+
+        await db[USER_CALENDAR_COLLECTION].update_one(
+            {"_id": entry["_id"]},
+            {
+                "$set": {
+                    "google_calendar_event_id": google_event_id,
+                    "google_calendar_event_url": _string_value(
+                        google_event.get("htmlLink")
+                    ),
+                }
+            },
+        )
+        synced_count += 1
+
+    await _set_google_sync_enabled(db, user_id, True)
+    return GoogleCalendarSyncResponse(
+        synced_count=synced_count,
+        skipped_count=skipped_count,
+    )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /users/{user_id}/calendar/sync/google -- Disable + remove Google sync
+# ---------------------------------------------------------------------------
+
+
+@router.delete(
+    "/{user_id}/calendar/sync/google",
+    response_model=GoogleCalendarUnsyncResponse,
+)
+async def unsync_user_calendar_from_google(
+    db: DbDep,
+    request: Request,
+    user_id: int,
+    current_user: AuthUserDep,
+) -> GoogleCalendarUnsyncResponse:
+    _ensure_same_user(current_user, user_id)
+    await _get_user_or_404(db, user_id)
+
+    entries = await _calendar_entries_for_user(db, user_id)
+    synced_entries = [
+        entry
+        for entry in entries
+        if _string_value(entry.get("google_calendar_event_id")) is not None
+    ]
+
+    access_token: str | None = None
+    unsynced_count = 0
+    for entry in synced_entries:
+        google_event_id = _string_value(entry.get("google_calendar_event_id"))
+        if google_event_id is None:
+            continue
+
+        if access_token is None:
+            access_token = await get_google_calendar_access_token(request)
+
+        await delete_google_calendar_event(access_token, google_event_id)
+        await db[USER_CALENDAR_COLLECTION].update_one(
+            {"_id": entry["_id"]},
+            {
+                "$set": {
+                    "google_calendar_event_id": None,
+                    "google_calendar_event_url": None,
+                }
+            },
+        )
+        unsynced_count += 1
+
+    await _set_google_sync_enabled(db, user_id, False)
+    return GoogleCalendarUnsyncResponse(unsynced_count=unsynced_count)
 
 
 # ---------------------------------------------------------------------------

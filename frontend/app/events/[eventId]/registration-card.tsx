@@ -6,12 +6,9 @@ import { useEffect, useState } from "react";
 import { AuthRequiredAction } from "@/components/auth-required-action";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { shouldShowAddToCalendar } from "@/lib/calendar-links";
 
 interface RegistrationCardProps {
   eventId: number;
-  addToCalendarUrl: string;
-  organizerUserId: number;
   price: number;
   spotsLeft: number;
 }
@@ -22,15 +19,37 @@ interface AttendanceStatusResponse {
   status: "going" | "checked_in" | "cancelled" | null;
 }
 
+interface AttendanceMutationResponse {
+  event_id: number;
+  user_id: number;
+  status: "going" | "cancelled";
+  in_calendar: boolean;
+  google_synced: boolean;
+}
+
+interface AppCalendarStatusResponse {
+  event_id: number;
+  in_calendar: boolean;
+  google_sync_enabled: boolean;
+}
+
 function formatPrice(price: number): string {
   if (price === 0) return "Free";
   return `$${price.toFixed(2)}`;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && typeof error.detail === "string") {
+    return error.detail;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function RegistrationCard({
   eventId,
-  addToCalendarUrl,
-  organizerUserId,
   price,
   spotsLeft,
 }: RegistrationCardProps) {
@@ -39,6 +58,10 @@ export function RegistrationCard({
   const [status, setStatus] = useState<AttendanceStatusResponse["status"]>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [calendarStatusLoading, setCalendarStatusLoading] = useState(false);
+  const [inCalendar, setInCalendar] = useState(false);
+  const [googleSyncEnabled, setGoogleSyncEnabled] = useState(false);
+  const [calendarMessage, setCalendarMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -84,6 +107,44 @@ export function RegistrationCard({
     };
   }, [eventId, user]);
 
+  useEffect(() => {
+    if (!user) {
+      setInCalendar(false);
+      setGoogleSyncEnabled(false);
+      setCalendarMessage(null);
+      setCalendarStatusLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCalendarStatusLoading(true);
+
+    void apiFetch<AppCalendarStatusResponse>(`/events/${eventId}/calendar`)
+      .then((response) => {
+        if (!cancelled) {
+          setInCalendar(response.in_calendar);
+          setGoogleSyncEnabled(response.google_sync_enabled);
+          setError(null);
+        }
+      })
+      .catch((nextError: unknown) => {
+        if (!cancelled) {
+          setError(
+            getErrorMessage(nextError, "Could not load your calendar status."),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCalendarStatusLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, user]);
+
   async function handleCancelRegistration() {
     const confirmed = window.confirm(
       "Are you sure you want to cancel your registration for this event?",
@@ -91,19 +152,22 @@ export function RegistrationCard({
     if (!confirmed) return;
 
     setActionLoading(true);
+    setCalendarMessage(null);
     setError(null);
 
     try {
-      await apiFetch(`/events/${eventId}/attendance`, {
+      const response = await apiFetch<AttendanceMutationResponse>(`/events/${eventId}/attendance`, {
         method: "DELETE",
       });
-      setStatus("cancelled");
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Could not cancel your registration.",
+      setStatus(response.status);
+      setInCalendar(response.in_calendar);
+      setCalendarMessage(
+        response.google_synced
+          ? "Registration cancelled. Removed from My Calendar and Google Calendar."
+          : "Registration cancelled. Removed from My Calendar.",
       );
+    } catch (nextError) {
+      setError(getErrorMessage(nextError, "Could not cancel your registration."));
     } finally {
       setActionLoading(false);
     }
@@ -111,36 +175,43 @@ export function RegistrationCard({
 
   async function handleRegister() {
     setActionLoading(true);
+    setCalendarMessage(null);
     setError(null);
 
     try {
-      const response = await apiFetch<AttendanceStatusResponse>(
+      const response = await apiFetch<AttendanceMutationResponse>(
         `/events/${eventId}/attendance`,
         {
           method: "POST",
         },
       );
       setStatus(response.status);
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Could not register for this event.",
+      setInCalendar(response.in_calendar);
+      setCalendarMessage(
+        response.google_synced
+          ? "Registered. Added to My Calendar and synced to Google Calendar."
+          : "Registered. Added to My Calendar.",
       );
+    } catch (nextError) {
+      setError(getErrorMessage(nextError, "Could not register for this event."));
     } finally {
       setActionLoading(false);
     }
   }
 
   const isRegistered = status === "going";
-  const isOrganizer = user?.id === organizerUserId;
-  const showAddToCalendar = shouldShowAddToCalendar(isOrganizer, status);
 
   return (
     <>
       {error ? (
         <div className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      ) : null}
+
+      {calendarMessage ? (
+        <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {calendarMessage}
         </div>
       ) : null}
 
@@ -189,22 +260,34 @@ export function RegistrationCard({
         </>
       )}
 
-      {showAddToCalendar ? (
-        <a
-          href={addToCalendarUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-zinc-200 py-3 text-sm font-semibold transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth={2}>
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <line x1="16" y1="2" x2="16" y2="6" />
-            <line x1="8" y1="2" x2="8" y2="6" />
-            <line x1="3" y1="10" x2="21" y2="10" />
-          </svg>
-          Add to Calendar
-        </a>
+      <div className="mt-5 flex items-center justify-between border-t border-zinc-200 pt-5 dark:border-zinc-700">
+        <span className="text-sm text-zinc-500">My Calendar</span>
+        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          {inCalendar ? "Saved" : "Not saved"}
+        </span>
+      </div>
+
+      {user && googleSyncEnabled ? (
+        <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          Google Calendar sync is on. Changes here will sync automatically.
+        </p>
       ) : null}
+
+      {user && calendarStatusLoading ? (
+        <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
+          Checking your calendar...
+        </div>
+      ) : user ? (
+        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+          {isRegistered
+            ? "This event stays in My Calendar while you are registered."
+            : "Registering adds this event to My Calendar automatically, and cancelling removes it."}
+        </p>
+      ) : (
+        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+          Register to have this event added to My Calendar automatically.
+        </p>
+      )}
     </>
   );
 }
