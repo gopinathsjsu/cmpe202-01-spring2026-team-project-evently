@@ -148,8 +148,9 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 export default function CalendarPage() {
   const { user, loading: authLoading, error: authError } = useRequireAuth();
-  const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(new Date()));
-  const [calendarLoadedAt] = useState(() => Date.now());
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [displayMonth, setDisplayMonth] = useState<Date | null>(null);
+  const [calendarLoadedAt, setCalendarLoadedAt] = useState<number | null>(null);
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [googleSyncEnabled, setGoogleSyncEnabled] = useState(false);
   const [calendarLoading, setCalendarLoading] = useState(true);
@@ -157,6 +158,12 @@ export default function CalendarPage() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsHydrated(true);
+    setDisplayMonth(startOfMonth(new Date()));
+    setCalendarLoadedAt(Date.now());
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -221,18 +228,27 @@ export default function CalendarPage() {
   }, [normalizedItems]);
 
   const gridDays = useMemo(() => {
+    if (displayMonth === null) {
+      return [];
+    }
     const monthStart = startOfMonth(displayMonth);
     const gridStart = addDays(monthStart, -monthStart.getDay());
     return Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
   }, [displayMonth]);
 
   const upcomingEvents = useMemo(() => {
+    if (calendarLoadedAt === null) {
+      return [];
+    }
     return normalizedItems
       .filter((item) => new Date(item.start_time).getTime() >= calendarLoadedAt)
       .slice(0, 5);
   }, [calendarLoadedAt, normalizedItems]);
 
   const pastEvents = useMemo(() => {
+    if (calendarLoadedAt === null) {
+      return [];
+    }
     return [...normalizedItems]
       .filter((item) => new Date(item.start_time).getTime() < calendarLoadedAt)
       .sort(
@@ -243,16 +259,28 @@ export default function CalendarPage() {
   }, [calendarLoadedAt, normalizedItems]);
 
   const selectedMonthItems = useMemo(
-    () =>
-      normalizedItems.filter((item) => {
+    () => {
+      if (displayMonth === null) {
+        return [];
+      }
+
+      return normalizedItems.filter((item) => {
         const date = new Date(item.start_time);
         return (
           date.getFullYear() === displayMonth.getFullYear() &&
           date.getMonth() === displayMonth.getMonth()
         );
-      }),
+      });
+    },
     [displayMonth, normalizedItems],
   );
+
+  const todayKey = useMemo(() => {
+    if (calendarLoadedAt === null) {
+      return null;
+    }
+    return dateKey(new Date(calendarLoadedAt));
+  }, [calendarLoadedAt]);
 
   async function reloadCalendar() {
     if (!user) {
@@ -347,7 +375,7 @@ export default function CalendarPage() {
       <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {authLoading ? (
+        {!isHydrated || displayMonth === null || calendarLoadedAt === null || authLoading ? (
           <div className="rounded-3xl border border-gray-200 bg-white p-8 text-sm text-gray-600 shadow-sm">
             Loading your calendar...
           </div>
@@ -497,7 +525,11 @@ export default function CalendarPage() {
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => setDisplayMonth((current) => addMonths(current, -1))}
+                          onClick={() =>
+                            setDisplayMonth((current) =>
+                              addMonths(current ?? startOfMonth(new Date()), -1),
+                            )
+                          }
                           className="rounded-full border border-gray-200 p-2 text-gray-600 transition hover:border-black hover:text-black"
                           aria-label="Previous month"
                         >
@@ -506,7 +538,11 @@ export default function CalendarPage() {
                         <span className="min-w-40 text-lg font-medium">{formatMonthLabel(displayMonth)}</span>
                         <button
                           type="button"
-                          onClick={() => setDisplayMonth((current) => addMonths(current, 1))}
+                          onClick={() =>
+                            setDisplayMonth((current) =>
+                              addMonths(current ?? startOfMonth(new Date()), 1),
+                            )
+                          }
                           className="rounded-full border border-gray-200 p-2 text-gray-600 transition hover:border-black hover:text-black"
                           aria-label="Next month"
                         >
@@ -555,10 +591,10 @@ export default function CalendarPage() {
                           {day}
                         </div>
                       ))}
-                      {gridDays.map((day, index) => {
-                        const dayItems = itemsByDate.get(dateKey(day)) ?? [];
-                        const isCurrentMonth = day.getMonth() === displayMonth.getMonth();
-                        const isToday = dateKey(day) === dateKey(new Date());
+                        {gridDays.map((day, index) => {
+                          const dayItems = itemsByDate.get(dateKey(day)) ?? [];
+                          const isCurrentMonth = day.getMonth() === displayMonth.getMonth();
+                          const isToday = todayKey !== null && dateKey(day) === todayKey;
 
                         return (
                           <div
