@@ -122,12 +122,14 @@ def _session_state(
     oauth_user: object | None = None,
     oauth_token: object | None = None,
     evently_user_id: object | None = None,
+    pending_signup: object | None = None,
     post_auth_redirect: object | None = None,
 ) -> dict[str, object | None]:
     return {
         auth_routes._OAUTH_USER_SESSION_KEY: oauth_user,
         auth_routes._OAUTH_TOKEN_SESSION_KEY: oauth_token,
         auth_routes._EVENTLY_USER_SESSION_KEY: evently_user_id,
+        auth_routes._PENDING_SIGNUP_SESSION_KEY: pending_signup,
         auth_routes._POST_AUTH_REDIRECT_KEY: post_auth_redirect,
     }
 
@@ -149,6 +151,9 @@ def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
             ),
             auth_routes._EVENTLY_USER_SESSION_KEY: request.session.get(
                 auth_routes._EVENTLY_USER_SESSION_KEY
+            ),
+            auth_routes._PENDING_SIGNUP_SESSION_KEY: request.session.get(
+                auth_routes._PENDING_SIGNUP_SESSION_KEY
             ),
             auth_routes._POST_AUTH_REDIRECT_KEY: request.session.get(
                 auth_routes._POST_AUTH_REDIRECT_KEY
@@ -233,7 +238,7 @@ async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
 
 
 @pytest.mark.asyncio
-async def test_callback_stores_userinfo_in_session() -> None:
+async def test_callback_stores_pending_signup_session_for_new_google_user() -> None:
     _, client = _make_client(base_url="https://test")
     userinfo = {
         "sub": "google-oauth2|123",
@@ -259,12 +264,12 @@ async def test_callback_stores_userinfo_in_session() -> None:
             session_resp = await client.get("/_test/session")
 
     assert resp.status_code == 307
-    assert resp.headers["location"] == "/"
+    assert resp.headers["location"] == "/complete-signup"
     session_data = session_resp.json()
     assert session_data == _session_state(
         oauth_user=userinfo,
         oauth_token=session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY],
-        evently_user_id=1,
+        pending_signup=True,
     )
     assert session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY] == {
         "access_token": "google-access-token",
@@ -496,7 +501,7 @@ async def test_callback_redirects_back_to_frontend_and_exposes_session_user() ->
         patch.object(auth_routes, "get_google_client", return_value=google_client),
         patch.object(
             auth_routes,
-            "_resolve_or_create_local_user",
+            "_resolve_existing_local_user",
             AsyncMock(return_value=local_user),
         ),
     ):
@@ -538,7 +543,7 @@ def test_build_frontend_settings_normalizes_frontend_url() -> None:
 
 
 @pytest.mark.asyncio
-async def test_callback_redirects_to_configured_frontend_origin(
+async def test_callback_redirects_new_user_to_configured_complete_signup_page(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
@@ -565,7 +570,7 @@ async def test_callback_redirects_to_configured_frontend_origin(
             resp = await client.get("/auth/callback")
 
     assert resp.status_code == 307
-    assert resp.headers["location"] == "https://frontend.example.com/create"
+    assert resp.headers["location"] == "https://frontend.example.com/complete-signup"
 
 
 @pytest.mark.asyncio
@@ -644,12 +649,12 @@ async def test_auth_session_uses_existing_local_user_without_recreating() -> Non
         profile_photo_url="https://example.com/profile.png",
     )
     await app.state.db["users"].insert_one(stored_user.model_dump(mode="json"))
-    resolve_or_create_local_user = AsyncMock()
+    resolve_existing_local_user = AsyncMock()
 
     with patch.object(
         auth_routes,
-        "_resolve_or_create_local_user",
-        resolve_or_create_local_user,
+        "_resolve_existing_local_user",
+        resolve_existing_local_user,
     ):
         async with client:
             await client.post(
@@ -666,7 +671,7 @@ async def test_auth_session_uses_existing_local_user_without_recreating() -> Non
             )
             resp = await client.get("/auth/session")
 
-    assert resolve_or_create_local_user.await_count == 0
+    assert resolve_existing_local_user.await_count == 0
     assert resp.status_code == 200
     assert resp.json() == {
         "user": {
@@ -682,7 +687,7 @@ async def test_auth_session_uses_existing_local_user_without_recreating() -> Non
 
 
 @pytest.mark.asyncio
-async def test_auth_session_creates_local_user_from_oauth_session() -> None:
+async def test_auth_session_keeps_pending_signup_user_unauthenticated() -> None:
     _, client = _make_client()
     userinfo = {
         "sub": "google-oauth2|123",
@@ -692,44 +697,115 @@ async def test_auth_session_creates_local_user_from_oauth_session() -> None:
         "family_name": "User",
         "picture": "https://example.com/oauth.png",
     }
-    local_user = User(
-        id=9,
-        username="testuser",
-        first_name="Test",
-        last_name="User",
-        email="user@example.com",
-    )
-    resolve_or_create_local_user = AsyncMock(return_value=local_user)
+    resolve_existing_local_user = AsyncMock(return_value=None)
 
     with patch.object(
         auth_routes,
-        "_resolve_or_create_local_user",
-        resolve_or_create_local_user,
+        "_resolve_existing_local_user",
+        resolve_existing_local_user,
     ):
         async with client:
             await client.post(
                 "/_test/session",
-                json={auth_routes._OAUTH_USER_SESSION_KEY: userinfo},
+                json={
+                    auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
+                    auth_routes._PENDING_SIGNUP_SESSION_KEY: True,
+                },
             )
             resp = await client.get("/auth/session")
             session_resp = await client.get("/_test/session")
 
-    assert resolve_or_create_local_user.await_count == 1
+    assert resolve_existing_local_user.await_count == 1
     assert resp.status_code == 200
-    assert resp.json() == {
-        "user": {
-            "id": 9,
-            "email": "user@example.com",
-            "first_name": "Test",
-            "last_name": "User",
-            "name": "Test User",
-            "roles": ["user"],
-            "picture": "https://example.com/oauth.png",
-        }
-    }
+    assert resp.json() == {"user": None}
     assert session_resp.json() == _session_state(
         oauth_user=userinfo,
-        evently_user_id=9,
+        pending_signup=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_pending_signup_endpoint_returns_google_profile_defaults() -> None:
+    _, client = _make_client()
+
+    async with client:
+        await client.post(
+            "/_test/session",
+            json={
+                auth_routes._OAUTH_USER_SESSION_KEY: {
+                    "sub": "google-oauth2|123",
+                    "email": "future.user@example.com",
+                    "email_verified": True,
+                    "given_name": "Future",
+                    "family_name": "User",
+                    "picture": "https://example.com/pending.png",
+                },
+                auth_routes._PENDING_SIGNUP_SESSION_KEY: True,
+            },
+        )
+        resp = await client.get("/auth/pending-signup")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "pending": {
+            "email": "future.user@example.com",
+            "first_name": "Future",
+            "last_name": "User",
+            "suggested_username": "futureuser",
+            "picture": "https://example.com/pending.png",
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_complete_signup_creates_local_user_and_redirect_target() -> None:
+    app, client = _make_client()
+
+    async with client:
+        await client.post(
+            "/_test/session",
+            json=_session_state(
+                oauth_user={
+                    "sub": "google-oauth2|999",
+                    "email": "future.user@example.com",
+                    "email_verified": True,
+                    "given_name": "Future",
+                    "family_name": "User",
+                },
+                pending_signup=True,
+                post_auth_redirect="http://localhost:3000/create",
+            ),
+        )
+        resp = await client.post(
+            "/auth/complete-signup",
+            json={
+                "username": "futureuser",
+                "first_name": "Future",
+                "last_name": "User",
+                "bio": "Ready to join Evently.",
+                "interests": ["Technology", "Community"],
+            },
+        )
+        session_resp = await client.get("/_test/session")
+
+    stored = await app.state.db["users"].find_one({"email": "future.user@example.com"})
+
+    assert resp.status_code == 200
+    assert stored is not None
+    assert stored["username"] == "futureuser"
+    assert stored["google_sub"] == "google-oauth2|999"
+    assert stored["profile"]["bio"] == "Ready to join Evently."
+    assert stored["profile"]["interests"] == ["Technology", "Community"]
+    assert resp.json()["redirect_to"] == "http://localhost:3000/create"
+    assert session_resp.json() == _session_state(
+        oauth_user={
+            "sub": "google-oauth2|999",
+            "email": "future.user@example.com",
+            "email_verified": True,
+            "given_name": "Future",
+            "family_name": "User",
+        },
+        evently_user_id=1,
     )
 
 
@@ -788,10 +864,10 @@ async def test_auth_session_reconciles_stale_local_user_with_current_oauth_user(
 
 
 @pytest.mark.asyncio
-async def test_resolve_or_create_local_user_stores_roles_as_list() -> None:
+async def test_create_local_user_from_oauth_stores_roles_as_list() -> None:
     db = _FakeDb()
 
-    user = await auth_routes._resolve_or_create_local_user(
+    user = await auth_routes._create_local_user_from_oauth(
         cast(Any, db),
         {
             "sub": "google-oauth2|123",
@@ -800,6 +876,7 @@ async def test_resolve_or_create_local_user_stores_roles_as_list() -> None:
             "given_name": "New",
             "family_name": "User",
         },
+        auth_routes.CompleteSignupRequest(username="newuser"),
     )
 
     stored = await db["users"].find_one({"email": "new-user@example.com"})
@@ -811,13 +888,13 @@ async def test_resolve_or_create_local_user_stores_roles_as_list() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resolve_or_create_local_user_assigns_admin_role_from_admin_emails(
+async def test_create_local_user_from_oauth_assigns_admin_role_from_admin_emails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com, other@example.com")
     db = _FakeDb()
 
-    user = await auth_routes._resolve_or_create_local_user(
+    user = await auth_routes._create_local_user_from_oauth(
         cast(Any, db),
         {
             "sub": "google-oauth2|123",
@@ -826,6 +903,7 @@ async def test_resolve_or_create_local_user_assigns_admin_role_from_admin_emails
             "given_name": "Admin",
             "family_name": "User",
         },
+        auth_routes.CompleteSignupRequest(username="adminuser"),
     )
 
     stored = await db["users"].find_one()
@@ -837,13 +915,13 @@ async def test_resolve_or_create_local_user_assigns_admin_role_from_admin_emails
 
 
 @pytest.mark.asyncio
-async def test_resolve_or_create_local_user_assigns_admin_role_from_quoted_admin_emails(
+async def test_create_local_user_from_oauth_assigns_admin_role_from_quoted_admin_emails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ADMIN_EMAILS", '"lucas.h.nguyen@sjsu.edu,admin2@example.com"')
     db = _FakeDb()
 
-    user = await auth_routes._resolve_or_create_local_user(
+    user = await auth_routes._create_local_user_from_oauth(
         cast(Any, db),
         {
             "sub": "google-oauth2|123",
@@ -852,6 +930,7 @@ async def test_resolve_or_create_local_user_assigns_admin_role_from_quoted_admin
             "given_name": "Lucas",
             "family_name": "Nguyen",
         },
+        auth_routes.CompleteSignupRequest(username="lucasnguyen"),
     )
 
     stored = await db["users"].find_one()
@@ -863,7 +942,7 @@ async def test_resolve_or_create_local_user_assigns_admin_role_from_quoted_admin
 
 
 @pytest.mark.asyncio
-async def test_resolve_or_create_local_user_backfills_google_subject_for_existing_email() -> (
+async def test_resolve_existing_local_user_backfills_google_subject_for_existing_email() -> (
     None
 ):
     db = _FakeDb()
@@ -879,7 +958,7 @@ async def test_resolve_or_create_local_user_backfills_google_subject_for_existin
         }
     )
 
-    user = await auth_routes._resolve_or_create_local_user(
+    user = await auth_routes._resolve_existing_local_user(
         cast(Any, db),
         {
             "sub": "google-oauth2|123",
@@ -899,7 +978,7 @@ async def test_resolve_or_create_local_user_backfills_google_subject_for_existin
 
 
 @pytest.mark.asyncio
-async def test_resolve_or_create_local_user_prefers_google_subject_over_email() -> None:
+async def test_resolve_existing_local_user_prefers_google_subject_over_email() -> None:
     db = _FakeDb()
     await db["users"].insert_one(
         {
@@ -914,7 +993,7 @@ async def test_resolve_or_create_local_user_prefers_google_subject_over_email() 
         }
     )
 
-    user = await auth_routes._resolve_or_create_local_user(
+    user = await auth_routes._resolve_existing_local_user(
         cast(Any, db),
         {
             "sub": "google-oauth2|123",

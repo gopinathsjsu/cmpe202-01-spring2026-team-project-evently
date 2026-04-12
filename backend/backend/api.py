@@ -16,6 +16,7 @@ from backend.routes.contact import router as contact_router
 from backend.routes.events import router as events_router
 from backend.routes.users import UPLOAD_DIR
 from backend.routes.users import router as users_router
+from backend.seed import ensure_required_startup_users
 
 
 @asynccontextmanager
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client: AsyncMongoClient[dict[str, Any]] = AsyncMongoClient(url)
     app.state.db_client = client
     app.state.db = client["evently"]
+    await ensure_required_startup_users(app.state.db)
     yield
     await client.close()
 
