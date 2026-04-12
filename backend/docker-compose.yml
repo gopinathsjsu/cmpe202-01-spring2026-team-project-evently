@@ -16,5 +16,18 @@ services:
     volumes:
       - mongodb_data:/data/db
 
+  redis:
+    image: redis:8.6.2
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_ARGS=--appendonly yes
+
 volumes:
   mongodb_data:
+
+  redis-data:
+    driver: local
