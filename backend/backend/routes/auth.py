@@ -20,7 +20,7 @@ from starlette.responses import RedirectResponse
 
 from backend.app_config import get_frontend_settings
 from backend.db import get_db
-from backend.models.user import GlobalRole, User
+from backend.models.user import GlobalRole, User, UserProfile
 
 CONF_URL = "https://accounts.google.com/.well-known/openid-configuration"
 GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events"
@@ -395,14 +395,18 @@ def _base_username(userinfo: Mapping[str, object], email: str) -> str:
 def _normalize_requested_username(value: str) -> str:
     normalized = USERNAME_SANITIZER.sub("", value.strip().lower().replace("-", "_"))
     if not normalized:
-        raise HTTPException(status_code=400, detail="Username must contain letters or numbers")
+        raise HTTPException(
+            status_code=400, detail="Username must contain letters or numbers"
+        )
     return normalized
 
 
 def _build_auth_session_user(
     user: User, *, picture: str | None = None
 ) -> AuthSessionUser:
-    full_name = " ".join(part for part in [user.first_name, user.last_name] if part).strip()
+    full_name = " ".join(
+        part for part in [user.first_name, user.last_name] if part
+    ).strip()
     return AuthSessionUser(
         id=user.id,
         email=user.email,
@@ -552,22 +556,24 @@ async def _create_local_user_from_oauth(
         id=await _next_user_id(db),
         username=username,
         first_name=(payload.first_name or default_first_name).strip(),
-        last_name=(payload.last_name if payload.last_name is not None else default_last_name).strip(),
+        last_name=(
+            payload.last_name if payload.last_name is not None else default_last_name
+        ).strip(),
         email=normalized_email,
         google_sub=subject,
         roles=_roles_for_email(normalized_email),
         profile_photo_url=_string_value(userinfo.get("picture")),
         phone_number=_string_value(payload.phone_number),
-        profile={
-            "bio": _string_value(payload.bio),
-            "location": _string_value(payload.location),
-            "website": _string_value(payload.website),
-            "twitter_handle": _string_value(payload.twitter_handle),
-            "instagram_handle": _string_value(payload.instagram_handle),
-            "facebook_handle": _string_value(payload.facebook_handle),
-            "linkedin_handle": _string_value(payload.linkedin_handle),
-            "interests": [item.strip() for item in payload.interests if item.strip()],
-        },
+        profile=UserProfile(
+            bio=_string_value(payload.bio),
+            location=_string_value(payload.location),
+            website=_string_value(payload.website),
+            twitter_handle=_string_value(payload.twitter_handle),
+            instagram_handle=_string_value(payload.instagram_handle),
+            facebook_handle=_string_value(payload.facebook_handle),
+            linkedin_handle=_string_value(payload.linkedin_handle),
+            interests=[item.strip() for item in payload.interests if item.strip()],
+        ),
     )
     await db["users"].insert_one(
         {
