@@ -17,6 +17,13 @@ from backend.routes import users as users_routes
 from backend.routes.auth import AuthSessionUser, require_authenticated_user
 
 
+def _sort_key(doc: dict[str, object], field: str) -> datetime | int | float | str:
+    value = doc.get(field)
+    if isinstance(value, (datetime, int, float, str)):
+        return value
+    return ""
+
+
 class _FakeCursor:
     def __init__(self, docs: list[dict[str, object]]) -> None:
         self._docs = docs
@@ -24,7 +31,7 @@ class _FakeCursor:
     def sort(self, field: str, direction: int) -> "_FakeCursor":
         self._docs = sorted(
             self._docs,
-            key=lambda doc: doc.get(field, 0),
+            key=lambda doc: _sort_key(doc, field),
             reverse=direction < 0,
         )
         return self
@@ -98,7 +105,7 @@ class _FakeCollection:
             field, direction = sort[0]
             matches = sorted(
                 matches,
-                key=lambda doc: doc.get(field, 0),
+                key=lambda doc: _sort_key(doc, field),
                 reverse=direction < 0,
             )
 
@@ -450,7 +457,9 @@ async def test_unsync_google_calendar_removes_synced_events_and_disables_sync() 
             "google_calendar_event_url": "https://calendar.google.com/calendar/event?eid=1",
         }
     )
-    await db["user_calendar_syncs"].insert_one({"user_id": 7, "google_sync_enabled": True})
+    await db["user_calendar_syncs"].insert_one(
+        {"user_id": 7, "google_sync_enabled": True}
+    )
 
     _, client = _make_client(db, _auth_user(7))
     delete_google_calendar_event = AsyncMock(return_value=None)
@@ -490,14 +499,18 @@ async def test_unsync_google_calendar_removes_synced_events_and_disables_sync() 
 
 
 @pytest.mark.asyncio
-async def test_unsync_google_calendar_disables_sync_when_no_google_events_exist() -> None:
+async def test_unsync_google_calendar_disables_sync_when_no_google_events_exist() -> (
+    None
+):
     db = _FakeDb()
     await db["users"].insert_one(_user_doc(7))
     await db["events"].insert_one(_event_doc())
     await db["user_calendar_entries"].insert_one(
         {"user_id": 7, "event_id": 1, "added_at": datetime.now(tz=UTC)}
     )
-    await db["user_calendar_syncs"].insert_one({"user_id": 7, "google_sync_enabled": True})
+    await db["user_calendar_syncs"].insert_one(
+        {"user_id": 7, "google_sync_enabled": True}
+    )
 
     _, client = _make_client(db, _auth_user(7))
     async with client:
