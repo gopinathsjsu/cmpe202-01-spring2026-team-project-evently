@@ -8,25 +8,27 @@ import { apiFetch } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import { buildEventUrl } from "@/lib/calendar-links";
 
-type ActivityAction = "attended" | "created" | "registered";
-
-interface ActivityItem {
+interface CalendarItem {
   event_id: number;
   event_title: string;
   event_image_url: string | null;
-  event_end_time: string | null;
-  action: ActivityAction;
-  date: string;
+  start_time: string;
+  end_time: string | null;
+  added_at: string;
+  google_synced: boolean;
+  google_calendar_event_url: string | null;
 }
 
-interface ActivityResponse {
-  items: ActivityItem[];
+interface CalendarResponse {
+  items: CalendarItem[];
+  google_sync_enabled: boolean;
 }
 
-interface CalendarSource {
-  label: string;
-  color: string;
-  action: ActivityAction;
+interface GoogleCalendarSyncResponse {
+  google_sync_enabled: boolean;
+  synced_count: number;
+  skipped_count: number;
+  status: "enabled";
 }
 
 interface CalendarViewOption {
@@ -35,11 +37,6 @@ interface CalendarViewOption {
 }
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const CALENDAR_SOURCES: CalendarSource[] = [
-  { label: "Created Events", color: "bg-black", action: "created" },
-  { label: "Registered Events", color: "bg-blue-600", action: "registered" },
-  { label: "Attended Events", color: "bg-gray-400", action: "attended" },
-];
 const CALENDAR_VIEW_OPTIONS: CalendarViewOption[] = [
   { label: "Month", enabled: true },
   { label: "Week", enabled: false },
@@ -54,10 +51,18 @@ function PlusIcon({ className }: { className?: string }) {
   );
 }
 
-function UploadIcon({ className }: { className?: string }) {
+function CalendarIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V7.5m0 0L8.25 11.25M12 7.5l3.75 3.75M4.5 16.5v.75A2.25 2.25 0 006.75 19.5h10.5a2.25 2.25 0 002.25-2.25v-.75" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3.75v2.5m7.5-2.5v2.5M4.5 8.25h15m-15 .75v9A2.25 2.25 0 006.75 20.25h10.5A2.25 2.25 0 0019.5 18V9a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 9Z" />
+    </svg>
+  );
+}
+
+function RefreshIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992V4.356m-1.857 13.299A9 9 0 118.18 5.334L3 10.5" />
     </svg>
   );
 }
@@ -74,14 +79,6 @@ function ChevronRightIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-    </svg>
-  );
-}
-
-function CalendarIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3.75v2.5m7.5-2.5v2.5M4.5 8.25h15m-15 .75v9A2.25 2.25 0 006.75 20.25h10.5A2.25 2.25 0 0019.5 18V9a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 9Z" />
     </svg>
   );
 }
@@ -106,16 +103,14 @@ function dateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function actionLabel(action: ActivityAction): string {
-  if (action === "created") return "Hosting";
-  if (action === "registered") return "Going";
-  return "Attended";
+function syncLabel(item: CalendarItem): string {
+  return item.google_synced ? "Google Synced" : "Evently Only";
 }
 
-function actionClasses(action: ActivityAction): string {
-  if (action === "created") return "bg-black text-white";
-  if (action === "registered") return "bg-blue-600 text-white";
-  return "bg-gray-200 text-gray-700";
+function syncClasses(item: CalendarItem): string {
+  return item.google_synced
+    ? "bg-emerald-100 text-emerald-800"
+    : "bg-zinc-100 text-zinc-700";
 }
 
 function startOfMonth(date: Date): Date {
@@ -144,39 +139,55 @@ function toIcsDate(dateString: string): string {
   return new Date(dateString).toISOString().replace(/[-:]|\.\d{3}/g, "");
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return fallback;
+}
+
 export default function CalendarPage() {
   const { user, loading: authLoading, error: authError } = useRequireAuth();
   const [displayMonth, setDisplayMonth] = useState(() => startOfMonth(new Date()));
   const [calendarLoadedAt] = useState(() => Date.now());
-  const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [activityLoading, setActivityLoading] = useState(true);
-  const [activityError, setActivityError] = useState<string | null>(null);
+  const [items, setItems] = useState<CalendarItem[]>([]);
+  const [googleSyncEnabled, setGoogleSyncEnabled] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setItems([]);
+      setGoogleSyncEnabled(false);
+      setCalendarLoading(false);
+      return;
+    }
 
     let cancelled = false;
+    setCalendarLoading(true);
 
-    void apiFetch<ActivityResponse>(`/users/${user.id}/activity?limit=24`)
+    void apiFetch<CalendarResponse>(`/users/${user.id}/calendar`)
       .then((response) => {
         if (!cancelled) {
-          setActivity(response.items);
-          setActivityError(null);
+          setItems(response.items);
+          setGoogleSyncEnabled(response.google_sync_enabled);
+          setCalendarError(null);
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setActivity([]);
-          setActivityError(
-            error instanceof Error
-              ? error.message
-              : "Could not load your calendar items.",
+          setItems([]);
+          setCalendarError(
+            getErrorMessage(error, "Could not load your saved calendar."),
           );
         }
       })
       .finally(() => {
         if (!cancelled) {
-          setActivityLoading(false);
+          setCalendarLoading(false);
         }
       });
 
@@ -185,112 +196,135 @@ export default function CalendarPage() {
     };
   }, [user]);
 
-  const normalizedActivity = useMemo(
+  const normalizedItems = useMemo(
     () =>
-      [...activity]
-        .filter((item) => !Number.isNaN(new Date(item.date).getTime()))
+      [...items]
+        .filter((item) => !Number.isNaN(new Date(item.start_time).getTime()))
         .sort(
           (left, right) =>
-            new Date(left.date).getTime() - new Date(right.date).getTime(),
+            new Date(left.start_time).getTime() - new Date(right.start_time).getTime(),
         ),
-    [activity],
+    [items],
   );
 
-  const activityByDate = useMemo(() => {
-    const groups = new Map<string, ActivityItem[]>();
+  const itemsByDate = useMemo(() => {
+    const groups = new Map<string, CalendarItem[]>();
 
-    for (const item of normalizedActivity) {
-      const key = dateKey(new Date(item.date));
+    for (const item of normalizedItems) {
+      const key = dateKey(new Date(item.start_time));
       const existing = groups.get(key) ?? [];
       existing.push(item);
       groups.set(key, existing);
     }
 
     return groups;
-  }, [normalizedActivity]);
+  }, [normalizedItems]);
 
   const gridDays = useMemo(() => {
     const monthStart = startOfMonth(displayMonth);
     const gridStart = addDays(monthStart, -monthStart.getDay());
-
     return Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
   }, [displayMonth]);
 
   const upcomingEvents = useMemo(() => {
-    return normalizedActivity
-      .filter((item) => new Date(item.date).getTime() >= calendarLoadedAt)
+    return normalizedItems
+      .filter((item) => new Date(item.start_time).getTime() >= calendarLoadedAt)
       .slice(0, 5);
-  }, [calendarLoadedAt, normalizedActivity]);
+  }, [calendarLoadedAt, normalizedItems]);
 
   const pastEvents = useMemo(() => {
-    return [...normalizedActivity]
-      .filter((item) => new Date(item.date).getTime() < calendarLoadedAt)
+    return [...normalizedItems]
+      .filter((item) => new Date(item.start_time).getTime() < calendarLoadedAt)
       .sort(
         (left, right) =>
-          new Date(right.date).getTime() - new Date(left.date).getTime(),
+          new Date(right.start_time).getTime() - new Date(left.start_time).getTime(),
       )
       .slice(0, 6);
-  }, [calendarLoadedAt, normalizedActivity]);
+  }, [calendarLoadedAt, normalizedItems]);
 
   const selectedMonthItems = useMemo(
     () =>
-      normalizedActivity.filter((item) => {
-        const date = new Date(item.date);
+      normalizedItems.filter((item) => {
+        const date = new Date(item.start_time);
         return (
           date.getFullYear() === displayMonth.getFullYear() &&
           date.getMonth() === displayMonth.getMonth()
         );
       }),
-    [displayMonth, normalizedActivity],
+    [displayMonth, normalizedItems],
   );
 
-  const exportableEvents = useMemo(() => {
-    const seen = new Set<string>();
+  async function reloadCalendar() {
+    if (!user) {
+      return;
+    }
 
-    return normalizedActivity.filter((item) => {
-      if (new Date(item.date).getTime() < calendarLoadedAt) {
-        return false;
-      }
+    const response = await apiFetch<CalendarResponse>(`/users/${user.id}/calendar`);
+    setItems(response.items);
+    setGoogleSyncEnabled(response.google_sync_enabled);
+    setCalendarError(null);
+  }
 
-      const key = `${item.event_id}-${item.date}`;
-      if (seen.has(key)) {
-        return false;
-      }
+  async function handleSyncToGoogleCalendar() {
+    if (!user) {
+      return;
+    }
 
-      seen.add(key);
-      return true;
-    });
-  }, [calendarLoadedAt, normalizedActivity]);
+    setSyncLoading(true);
+    setSyncMessage(null);
+    setSyncError(null);
+
+    try {
+      const response = await apiFetch<GoogleCalendarSyncResponse>(
+        `/users/${user.id}/calendar/sync/google`,
+        {
+          method: "POST",
+        },
+      );
+      await reloadCalendar();
+      setGoogleSyncEnabled(response.google_sync_enabled);
+      setSyncMessage(
+        response.synced_count > 0
+          ? `Synced ${response.synced_count} saved event${response.synced_count === 1 ? "" : "s"} to Google Calendar.`
+          : "Google Calendar sync is enabled for your saved events.",
+      );
+    } catch (error: unknown) {
+      setSyncError(
+        getErrorMessage(error, "Could not sync your calendar to Google."),
+      );
+    } finally {
+      setSyncLoading(false);
+    }
+  }
 
   function handleCalendarExport() {
-    if (exportableEvents.length === 0) {
+    if (normalizedItems.length === 0) {
       return;
     }
 
     const lines = [
       "BEGIN:VCALENDAR",
       "VERSION:2.0",
-      "PRODID:-//Evently//Personal Planner//EN",
+      "PRODID:-//Evently//Saved Calendar//EN",
       "CALSCALE:GREGORIAN",
       "METHOD:PUBLISH",
-      ...exportableEvents.flatMap((item) => {
-        const start = new Date(item.date);
+      ...normalizedItems.map((item) => {
         const end =
-          item.event_end_time && !Number.isNaN(new Date(item.event_end_time).getTime())
-            ? new Date(item.event_end_time)
-            : new Date(start.getTime() + 2 * 60 * 60 * 1000);
+          item.end_time && !Number.isNaN(new Date(item.end_time).getTime())
+            ? item.end_time
+            : new Date(new Date(item.start_time).getTime() + 2 * 60 * 60 * 1000).toISOString();
 
         return [
           "BEGIN:VEVENT",
-          `UID:evently-${item.event_id}-${start.getTime()}@evently.local`,
+          `UID:evently-${item.event_id}@evently.local`,
           `DTSTAMP:${toIcsDate(new Date().toISOString())}`,
-          `DTSTART:${toIcsDate(item.date)}`,
-          `DTEND:${toIcsDate(end.toISOString())}`,
+          `DTSTART:${toIcsDate(item.start_time)}`,
+          `DTEND:${toIcsDate(end)}`,
           `SUMMARY:${escapeIcsText(item.event_title)}`,
-          `DESCRIPTION:${escapeIcsText(`Imported from Evently Personal Planner (${actionLabel(item.action)})`)}`,
+          `DESCRIPTION:${escapeIcsText("Saved from Evently My Calendar")}`,
           `URL:${buildEventUrl(window.location.origin, item.event_id)}`,
           "END:VEVENT",
-        ];
+        ].join("\r\n");
       }),
       "END:VCALENDAR",
     ];
@@ -301,7 +335,7 @@ export default function CalendarPage() {
     const url = URL.createObjectURL(file);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "evently-personal-planner.ics";
+    link.download = "evently-my-calendar.ics";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -326,13 +360,13 @@ export default function CalendarPage() {
             <section className="mb-8 flex flex-col gap-4 rounded-3xl border border-gray-200 bg-white px-6 py-6 shadow-sm sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="text-sm font-medium uppercase tracking-[0.2em] text-gray-500">
-                  Personal Planner
+                  Saved Calendar
                 </p>
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight">
                   {user?.first_name ? `${user.first_name}'s Calendar` : "My Calendar"}
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm text-gray-600">
-                  Track the events you are hosting, planning to attend, and recently joined in one place.
+                  Save events here first, then sync your Evently calendar to Google Calendar whenever you are ready.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
@@ -345,17 +379,21 @@ export default function CalendarPage() {
                 </Link>
                 <button
                   type="button"
-                  disabled
-                  title="Event import is coming soon."
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-400 transition disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={handleSyncToGoogleCalendar}
+                  disabled={syncLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-800 transition hover:border-black hover:text-black disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <UploadIcon className="h-4 w-4" />
-                  Import Events Soon
+                  <RefreshIcon className="h-4 w-4" />
+                  {syncLoading
+                    ? "Syncing..."
+                    : googleSyncEnabled
+                      ? "Resync Google Calendar"
+                      : "Sync to Google Calendar"}
                 </button>
                 <button
                   type="button"
                   onClick={handleCalendarExport}
-                  disabled={exportableEvents.length === 0}
+                  disabled={normalizedItems.length === 0}
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <CalendarIcon className="h-4 w-4" />
@@ -363,6 +401,18 @@ export default function CalendarPage() {
                 </button>
               </div>
             </section>
+
+            {syncError ? (
+              <div className="mb-6 rounded-3xl border border-red-200 bg-red-50 px-6 py-4 text-sm text-red-700 shadow-sm">
+                {syncError}
+              </div>
+            ) : null}
+
+            {syncMessage ? (
+              <div className="mb-6 rounded-3xl border border-emerald-200 bg-emerald-50 px-6 py-4 text-sm text-emerald-700 shadow-sm">
+                {syncMessage}
+              </div>
+            ) : null}
 
             <section className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
               <aside className="space-y-6">
@@ -378,36 +428,44 @@ export default function CalendarPage() {
                     </Link>
                     <button
                       type="button"
-                      disabled
-                      title="Event import is coming soon."
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-400 transition disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={handleSyncToGoogleCalendar}
+                      disabled={syncLoading}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 transition hover:border-black hover:text-black disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <UploadIcon className="h-4 w-4" />
-                      Import Events Soon
+                      <RefreshIcon className="h-4 w-4" />
+                      {syncLoading ? "Syncing..." : "Sync to Google Calendar"}
                     </button>
                   </div>
                 </div>
 
                 <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
                   <h2 className="text-base font-semibold">My Calendars</h2>
-                  <ul className="mt-4 space-y-3">
-                    {CALENDAR_SOURCES.map((source) => (
-                      <li key={source.action} className="flex items-center gap-3 text-sm text-gray-700">
-                        <span className={`h-3 w-3 rounded-full ${source.color}`} />
-                        <span>{source.label}</span>
-                      </li>
-                    ))}
+                  <ul className="mt-4 space-y-3 text-sm text-gray-700">
+                    <li className="flex items-center gap-3">
+                      <span className="h-3 w-3 rounded-full bg-black" />
+                      <span>Evently Saved Events</span>
+                    </li>
+                    <li className="flex items-center gap-3">
+                      <span
+                        className={`h-3 w-3 rounded-full ${
+                          googleSyncEnabled ? "bg-emerald-500" : "bg-gray-300"
+                        }`}
+                      />
+                      <span>
+                        Google Calendar {googleSyncEnabled ? "Connected" : "Not Connected"}
+                      </span>
+                    </li>
                   </ul>
                 </div>
 
                 <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-                  <h2 className="text-base font-semibold">Upcoming Events</h2>
-                  {activityLoading ? (
-                    <p className="mt-4 text-sm text-gray-500">Loading upcoming events...</p>
+                  <h2 className="text-base font-semibold">Upcoming Saved Events</h2>
+                  {calendarLoading ? (
+                    <p className="mt-4 text-sm text-gray-500">Loading saved events...</p>
                   ) : upcomingEvents.length > 0 ? (
                     <div className="mt-4 space-y-4">
                       {upcomingEvents.map((item) => (
-                        <div key={`${item.event_id}-${item.action}-${item.date}`} className="border-l-2 border-gray-900 pl-3">
+                        <div key={`${item.event_id}-${item.start_time}`} className="border-l-2 border-gray-900 pl-3">
                           <Link
                             href={`/events/${item.event_id}`}
                             className="text-sm font-semibold text-gray-900 transition hover:text-gray-600"
@@ -415,15 +473,17 @@ export default function CalendarPage() {
                             {item.event_title}
                           </Link>
                           <p className="mt-1 text-xs uppercase tracking-[0.18em] text-gray-500">
-                            {actionLabel(item.action)}
+                            {syncLabel(item)}
                           </p>
-                          <p className="mt-1 text-xs text-gray-500">{formatEventTime(item.date)}</p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            {formatEventTime(item.start_time)}
+                          </p>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <p className="mt-4 text-sm text-gray-500">
-                      Your upcoming plans will appear here once you create or join events.
+                      Save events from their detail pages to build your personal calendar.
                     </p>
                   )}
                 </div>
@@ -474,9 +534,7 @@ export default function CalendarPage() {
                     ))}
                     <button
                       type="button"
-                      onClick={() => {
-                        setDisplayMonth(startOfMonth(new Date()));
-                      }}
+                      onClick={() => setDisplayMonth(startOfMonth(new Date()))}
                       className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:border-black hover:text-black"
                     >
                       Today
@@ -484,8 +542,8 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                {activityError ? (
-                  <div className="px-6 py-6 text-sm text-red-700">{activityError}</div>
+                {calendarError ? (
+                  <div className="px-6 py-6 text-sm text-red-700">{calendarError}</div>
                 ) : (
                   <div className="px-4 pb-4 pt-5 sm:px-6 sm:pb-6">
                     <div className="grid grid-cols-7 overflow-hidden rounded-2xl border border-gray-200">
@@ -498,14 +556,14 @@ export default function CalendarPage() {
                         </div>
                       ))}
                       {gridDays.map((day, index) => {
-                        const items = activityByDate.get(dateKey(day)) ?? [];
+                        const dayItems = itemsByDate.get(dateKey(day)) ?? [];
                         const isCurrentMonth = day.getMonth() === displayMonth.getMonth();
                         const isToday = dateKey(day) === dateKey(new Date());
 
                         return (
                           <div
                             key={`${day.toISOString()}-${index}`}
-                            className={`min-h-32 border-r border-b border-gray-200 px-3 py-3 text-left align-top transition hover:bg-gray-50 ${index % 7 === 6 ? "border-r-0" : ""}`}
+                            className={`min-h-32 border-b border-r border-gray-200 px-3 py-3 text-left align-top transition hover:bg-gray-50 ${index % 7 === 6 ? "border-r-0" : ""}`}
                           >
                             <div className="flex items-center justify-between">
                               <span
@@ -519,24 +577,26 @@ export default function CalendarPage() {
                               >
                                 {day.getDate()}
                               </span>
-                              {items.length > 0 ? (
-                                <span className="text-xs text-gray-400">{items.length} item{items.length > 1 ? "s" : ""}</span>
+                              {dayItems.length > 0 ? (
+                                <span className="text-xs text-gray-400">
+                                  {dayItems.length} item{dayItems.length > 1 ? "s" : ""}
+                                </span>
                               ) : null}
                             </div>
 
                             <div className="mt-3 space-y-2">
-                              {items.slice(0, 2).map((item) => (
+                              {dayItems.slice(0, 2).map((item) => (
                                 <Link
-                                  key={`${item.event_id}-${item.action}-${item.date}`}
+                                  key={`${item.event_id}-${item.start_time}`}
                                   href={`/events/${item.event_id}`}
-                                  className={`truncate rounded-lg px-2.5 py-1.5 text-xs font-medium ${actionClasses(item.action)}`}
+                                  className={`block truncate rounded-lg px-2.5 py-1.5 text-xs font-medium ${syncClasses(item)}`}
                                 >
                                   {item.event_title}
                                 </Link>
                               ))}
-                              {items.length > 2 ? (
+                              {dayItems.length > 2 ? (
                                 <div className="text-xs font-medium text-gray-500">
-                                  +{items.length - 2} more
+                                  +{dayItems.length - 2} more
                                 </div>
                               ) : null}
                             </div>
@@ -557,7 +617,7 @@ export default function CalendarPage() {
                     <div className="mt-5 grid gap-4 sm:grid-cols-2">
                       {selectedMonthItems.slice(0, 6).map((item) => (
                         <Link
-                          key={`${item.event_id}-${item.action}-${item.date}-summary`}
+                          key={`${item.event_id}-${item.start_time}-summary`}
                           href={`/events/${item.event_id}`}
                           className="rounded-2xl border border-gray-200 bg-[#faf8f3] p-4"
                         >
@@ -565,28 +625,32 @@ export default function CalendarPage() {
                             <p className="text-sm font-semibold text-gray-900">
                               {item.event_title}
                             </p>
-                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${actionClasses(item.action)}`}>
-                              {actionLabel(item.action)}
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${syncClasses(item)}`}
+                            >
+                              {syncLabel(item)}
                             </span>
                           </div>
-                          <p className="mt-3 text-sm text-gray-500">{formatEventTime(item.date)}</p>
+                          <p className="mt-3 text-sm text-gray-500">
+                            {formatEventTime(item.start_time)}
+                          </p>
                         </Link>
                       ))}
                     </div>
                   ) : (
                     <p className="mt-4 text-sm text-gray-500">
-                      No events are scheduled for this month yet.
+                      No saved events are scheduled for this month yet.
                     </p>
                   )}
                 </div>
 
                 <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-                  <h2 className="text-lg font-semibold">Past Events</h2>
+                  <h2 className="text-lg font-semibold">Past Saved Events</h2>
                   {pastEvents.length > 0 ? (
                     <div className="mt-5 grid gap-4 sm:grid-cols-2">
                       {pastEvents.map((item) => (
                         <Link
-                          key={`${item.event_id}-${item.action}-${item.date}-past`}
+                          key={`${item.event_id}-${item.start_time}-past`}
                           href={`/events/${item.event_id}`}
                           className="rounded-2xl border border-gray-200 bg-white p-4 transition hover:border-gray-300 hover:bg-gray-50"
                         >
@@ -594,17 +658,21 @@ export default function CalendarPage() {
                             <p className="text-sm font-semibold text-gray-900">
                               {item.event_title}
                             </p>
-                            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${actionClasses(item.action)}`}>
-                              {actionLabel(item.action)}
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${syncClasses(item)}`}
+                            >
+                              {syncLabel(item)}
                             </span>
                           </div>
-                          <p className="mt-3 text-sm text-gray-500">{formatEventTime(item.date)}</p>
+                          <p className="mt-3 text-sm text-gray-500">
+                            {formatEventTime(item.start_time)}
+                          </p>
                         </Link>
                       ))}
                     </div>
                   ) : (
                     <p className="mt-4 text-sm text-gray-500">
-                      Your past events will appear here after they happen.
+                      Your past saved events will appear here after they happen.
                     </p>
                   )}
                 </div>
@@ -618,14 +686,9 @@ export default function CalendarPage() {
                   <div>
                     <p className="font-semibold">Evently</p>
                     <p className="text-sm text-gray-500">
-                      Create and manage events with ease.
+                      Your saved events stay in Evently first, with Google sync available whenever you turn it on.
                     </p>
                   </div>
-                </div>
-                <div className="mt-6 grid gap-5 text-sm text-gray-600">
-                  <Link href="/create" className="transition hover:text-black">Create Events</Link>
-                  <Link href="/help" className="transition hover:text-black">Help Center</Link>
-                  <Link href="/" className="transition hover:text-black">Browse Events</Link>
                 </div>
               </footer>
             </section>

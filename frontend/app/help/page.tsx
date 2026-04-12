@@ -188,7 +188,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I register for an event?",
     answer:
-      'Browse events on the home page or search for specific events. Click on an event to view its details, then click "Register Now". If you are signed in, your registration is saved immediately and the event appears in your calendar.',
+      'Browse events on the home page or search for specific events. Click on an event to view its details, then click "Register Now". If you also want the event in your personal planner, use "Add to My Calendar" on the event page and sync it to Google Calendar from My Calendar when you are ready.',
     category: "Ticketing",
   },
   {
@@ -200,7 +200,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I cancel my registration?",
     answer:
-      'Open the event details page for the event you joined and click "Cancel Registration". Your attendee status is updated right away and the event is removed from your upcoming plans.',
+      'Open the event details page for the event you joined and click "Cancel Registration". Your attendee status is updated right away. Saved calendar items are managed separately through "Add to My Calendar" on the event page.',
     category: "Ticketing",
   },
   {
@@ -236,7 +236,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Can I get a confirmation for my registration?",
     answer:
-      "You can confirm your joined events from your personal calendar and the event page itself. Dedicated receipt downloads are not part of the current registration flow.",
+      "You can confirm your joined events from the event page itself, and saved plans appear in My Calendar. Dedicated receipt downloads are not part of the current registration flow.",
     category: "Payments",
   },
   {

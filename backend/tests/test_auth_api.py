@@ -117,6 +117,21 @@ def clear_oauth_cache() -> Iterator[None]:
     auth_routes.get_oauth.cache_clear()
 
 
+def _session_state(
+    *,
+    oauth_user: object | None = None,
+    oauth_token: object | None = None,
+    evently_user_id: object | None = None,
+    post_auth_redirect: object | None = None,
+) -> dict[str, object | None]:
+    return {
+        auth_routes._OAUTH_USER_SESSION_KEY: oauth_user,
+        auth_routes._OAUTH_TOKEN_SESSION_KEY: oauth_token,
+        auth_routes._EVENTLY_USER_SESSION_KEY: evently_user_id,
+        auth_routes._POST_AUTH_REDIRECT_KEY: post_auth_redirect,
+    }
+
+
 def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
     app = create_app()
     fake_db = _FakeDb()
@@ -128,6 +143,9 @@ def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
         return {
             auth_routes._OAUTH_USER_SESSION_KEY: request.session.get(
                 auth_routes._OAUTH_USER_SESSION_KEY
+            ),
+            auth_routes._OAUTH_TOKEN_SESSION_KEY: request.session.get(
+                auth_routes._OAUTH_TOKEN_SESSION_KEY
             ),
             auth_routes._EVENTLY_USER_SESSION_KEY: request.session.get(
                 auth_routes._EVENTLY_USER_SESSION_KEY
@@ -147,6 +165,12 @@ def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
                 continue
             request.session[key] = value
         return await read_session(request)
+
+    @app.get("/_test/google-calendar-access-token")
+    async def read_google_calendar_access_token(request: Request) -> dict[str, str]:
+        return {
+            "access_token": await auth_routes.get_google_calendar_access_token(request)
+        }
 
     transport = ASGITransport(app=app)
     client = AsyncClient(transport=transport, base_url=base_url)
@@ -185,6 +209,10 @@ async def test_login_redirects_to_google_and_uses_callback_url() -> None:
     assert authorize_redirect.await_count == 1
     assert await_args is not None
     assert await_args.args[1] == "https://test/auth/callback"
+    assert await_args.kwargs == {
+        "access_type": "offline",
+        "include_granted_scopes": "true",
+    }
     set_cookie = resp.headers.get("set-cookie", "")
     assert "evently_session=" in set_cookie
     assert "samesite=lax" in set_cookie
@@ -213,7 +241,16 @@ async def test_callback_stores_userinfo_in_session() -> None:
         "email_verified": True,
         "name": "Test User",
     }
-    authorize_access_token = AsyncMock(return_value={"userinfo": userinfo})
+    oauth_token = {
+        "access_token": "google-access-token",
+        "refresh_token": "google-refresh-token",
+        "token_type": "Bearer",
+        "scope": auth_routes.GOOGLE_OAUTH_SCOPE,
+        "expires_in": 3600,
+    }
+    authorize_access_token = AsyncMock(
+        return_value={"userinfo": userinfo, **oauth_token}
+    )
     google_client = SimpleNamespace(authorize_access_token=authorize_access_token)
 
     with patch.object(auth_routes, "get_google_client", return_value=google_client):
@@ -223,11 +260,59 @@ async def test_callback_stores_userinfo_in_session() -> None:
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "/"
-    assert session_resp.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
-        auth_routes._EVENTLY_USER_SESSION_KEY: 1,
-        auth_routes._POST_AUTH_REDIRECT_KEY: None,
+    session_data = session_resp.json()
+    assert session_data == _session_state(
+        oauth_user=userinfo,
+        oauth_token=session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY],
+        evently_user_id=1,
+    )
+    assert session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY] == {
+        "access_token": "google-access-token",
+        "refresh_token": "google-refresh-token",
+        "token_type": "Bearer",
+        "scope": auth_routes.GOOGLE_OAUTH_SCOPE,
+        "expires_at": session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY]["expires_at"],
     }
+    assert isinstance(
+        session_data[auth_routes._OAUTH_TOKEN_SESSION_KEY]["expires_at"], int
+    )
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_access_token_refreshes_when_session_token_is_expired() -> (
+    None
+):
+    _, client = _make_client(base_url="https://test")
+    expired_token = {
+        "access_token": "expired-access-token",
+        "refresh_token": "refresh-token",
+        "expires_at": 1,
+        "scope": auth_routes.GOOGLE_OAUTH_SCOPE,
+    }
+    refreshed_token = {
+        "access_token": "fresh-access-token",
+        "refresh_token": "refresh-token",
+        "expires_at": 9999999999,
+        "scope": auth_routes.GOOGLE_OAUTH_SCOPE,
+    }
+
+    with patch.object(
+        auth_routes,
+        "_refresh_oauth_token",
+        AsyncMock(return_value=refreshed_token),
+    ) as refresh_oauth_token:
+        async with client:
+            await client.post(
+                "/_test/session",
+                json=_session_state(oauth_token=expired_token),
+            )
+            token_resp = await client.get("/_test/google-calendar-access-token")
+            session_resp = await client.get("/_test/session")
+
+    assert refresh_oauth_token.await_count == 1
+    assert token_resp.status_code == 200
+    assert token_resp.json() == {"access_token": "fresh-access-token"}
+    assert session_resp.json() == _session_state(oauth_token=refreshed_token)
 
 
 @pytest.mark.asyncio
@@ -327,11 +412,7 @@ async def test_callback_rejects_google_identity_without_verified_email() -> None
 
     assert resp.status_code == 400
     assert resp.json() == {"detail": auth_routes.OAUTH_INVALID_IDENTITY}
-    assert session_resp.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: None,
-        auth_routes._EVENTLY_USER_SESSION_KEY: None,
-        auth_routes._POST_AUTH_REDIRECT_KEY: None,
-    }
+    assert session_resp.json() == _session_state()
 
 
 @pytest.mark.asyncio
@@ -358,30 +439,29 @@ async def test_logout_clears_session_and_redirects_home() -> None:
         "email": "user@example.com",
         "name": "Test User",
     }
+    oauth_token = {"access_token": "google-access-token"}
     async with client:
         before_logout = await client.post(
             "/_test/session",
-            json={
-                auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
-                auth_routes._EVENTLY_USER_SESSION_KEY: 7,
-                auth_routes._POST_AUTH_REDIRECT_KEY: "http://localhost:3000/create",
-            },
+            json=_session_state(
+                oauth_user=userinfo,
+                oauth_token=oauth_token,
+                evently_user_id=7,
+                post_auth_redirect="http://localhost:3000/create",
+            ),
         )
         resp = await client.get("/auth/logout")
         after_logout = await client.get("/_test/session")
 
-    assert before_logout.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
-        auth_routes._EVENTLY_USER_SESSION_KEY: 7,
-        auth_routes._POST_AUTH_REDIRECT_KEY: "http://localhost:3000/create",
-    }
+    assert before_logout.json() == _session_state(
+        oauth_user=userinfo,
+        oauth_token=oauth_token,
+        evently_user_id=7,
+        post_auth_redirect="http://localhost:3000/create",
+    )
     assert resp.status_code == 307
     assert resp.headers["location"] == "/"
-    assert after_logout.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: None,
-        auth_routes._EVENTLY_USER_SESSION_KEY: None,
-        auth_routes._POST_AUTH_REDIRECT_KEY: None,
-    }
+    assert after_logout.json() == _session_state()
 
 
 @pytest.mark.asyncio
@@ -428,11 +508,10 @@ async def test_callback_redirects_back_to_frontend_and_exposes_session_user() ->
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "http://localhost:3000/create"
-    assert stored_session.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
-        auth_routes._EVENTLY_USER_SESSION_KEY: 7,
-        auth_routes._POST_AUTH_REDIRECT_KEY: None,
-    }
+    assert stored_session.json() == _session_state(
+        oauth_user=userinfo,
+        evently_user_id=7,
+    )
     assert session_resp.status_code == 200
     assert session_resp.json() == {
         "user": {
@@ -526,11 +605,9 @@ async def test_login_uses_allowed_referer_as_post_auth_redirect() -> None:
             )
             session_resp = await client.get("/_test/session")
 
-    assert session_resp.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: None,
-        auth_routes._EVENTLY_USER_SESSION_KEY: None,
-        auth_routes._POST_AUTH_REDIRECT_KEY: "http://localhost:3000/events/42",
-    }
+    assert session_resp.json() == _session_state(
+        post_auth_redirect="http://localhost:3000/events/42"
+    )
 
 
 @pytest.mark.asyncio
@@ -550,11 +627,9 @@ async def test_login_rejects_disallowed_next_and_falls_back_to_primary_origin(
             await client.get("/auth/login?next=https://evil.example.com/phish")
             session_resp = await client.get("/_test/session")
 
-    assert session_resp.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: None,
-        auth_routes._EVENTLY_USER_SESSION_KEY: None,
-        auth_routes._POST_AUTH_REDIRECT_KEY: "https://frontend.example.com",
-    }
+    assert session_resp.json() == _session_state(
+        post_auth_redirect="https://frontend.example.com"
+    )
 
 
 @pytest.mark.asyncio
@@ -652,11 +727,10 @@ async def test_auth_session_creates_local_user_from_oauth_session() -> None:
             "picture": "https://example.com/oauth.png",
         }
     }
-    assert session_resp.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: userinfo,
-        auth_routes._EVENTLY_USER_SESSION_KEY: 9,
-        auth_routes._POST_AUTH_REDIRECT_KEY: None,
-    }
+    assert session_resp.json() == _session_state(
+        oauth_user=userinfo,
+        evently_user_id=9,
+    )
 
 
 @pytest.mark.asyncio
@@ -701,17 +775,16 @@ async def test_auth_session_reconciles_stale_local_user_with_current_oauth_user(
     assert resp.status_code == 200
     assert resp.json()["user"]["id"] == 8
     assert resp.json()["user"]["name"] == "Lucas Nguyen"
-    assert session_resp.json() == {
-        auth_routes._OAUTH_USER_SESSION_KEY: {
+    assert session_resp.json() == _session_state(
+        oauth_user={
             "sub": "google-oauth2|321",
             "email": "lucas.h.nguyen@sjsu.edu",
             "email_verified": True,
             "given_name": "Lucas",
             "family_name": "Nguyen",
         },
-        auth_routes._EVENTLY_USER_SESSION_KEY: 8,
-        auth_routes._POST_AUTH_REDIRECT_KEY: None,
-    }
+        evently_user_id=8,
+    )
 
 
 @pytest.mark.asyncio
