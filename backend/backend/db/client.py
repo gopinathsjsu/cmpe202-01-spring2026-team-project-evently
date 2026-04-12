@@ -9,6 +9,17 @@ from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
 
+def get_mongo_client(url: str | None = None) -> AsyncMongoClient[dict[str, Any]]:
+    """Returns an AsyncMongoClient instance.
+
+    Falls back to the DATABASE_URL environment variable if no url is provided.
+    """
+    connection_url = url or os.getenv("DATABASE_URL", "")
+    if not connection_url:
+        raise ValueError("No database URL provided and DATABASE_URL env var is not set")
+    return AsyncMongoClient(connection_url)
+
+
 @asynccontextmanager
 async def get_database(
     url: str | None = None,
@@ -18,9 +29,7 @@ async def get_database(
 
     Falls back to the DATABASE_URL environment variable if no url is provided.
     """
-    connection_url = url or os.getenv("DATABASE_URL", "")
-    if not connection_url:
-        raise ValueError("No database URL provided and DATABASE_URL env var is not set")
-    client: AsyncMongoClient[dict[str, Any]]
-    async with AsyncMongoClient(connection_url) as client:
+    mongo_client = get_mongo_client(url)
+
+    async with mongo_client as client:
         yield client[db_name]
