@@ -103,6 +103,25 @@ export interface PendingEventListItem {
   status: EventStatus;
 }
 
+export interface MyEventItem {
+  id: number;
+  title: string;
+  start_time: string;
+  end_time: string;
+  category: string;
+  is_online: boolean;
+  image_url: string | null;
+  location_summary: string;
+  price: number;
+  status: string | null;
+  attending_count: number;
+}
+
+export interface MyEventsResponse {
+  created: MyEventItem[];
+  registered: MyEventItem[];
+}
+
 export interface EventCreatePayload {
   title: string;
   about: string;

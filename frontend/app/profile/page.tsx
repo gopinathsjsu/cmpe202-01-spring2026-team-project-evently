@@ -143,7 +143,7 @@ function GlobeIcon({ className }: { className?: string }) {
 const QUICK_LINKS = [
   { href: "/profile", label: "Profile", icon: UserIcon },
   { href: "/calendar", label: "My Calendar", icon: CalendarIcon },
-  { href: "/create", label: "My Events", icon: TicketIcon },
+  { href: "/my-events", label: "My Events", icon: TicketIcon },
   { href: "#", label: "Favorites", icon: HeartIcon },
   { href: "#", label: "Settings", icon: CogIcon },
 ] as const;

@@ -118,6 +118,25 @@ class ActivityResponse(BaseModel):
     items: list[ActivityItem]
 
 
+class MyEventItem(BaseModel):
+    id: int
+    title: str
+    start_time: datetime
+    end_time: datetime
+    category: str
+    is_online: bool
+    image_url: str | None = None
+    location_summary: str
+    price: float
+    status: str | None = None
+    attending_count: int = 0
+
+
+class MyEventsResponse(BaseModel):
+    created: list[MyEventItem]
+    registered: list[MyEventItem]
+
+
 class CalendarItem(BaseModel):
     event_id: int
     event_title: str
@@ -416,6 +435,99 @@ async def get_current_user_profile(db: DbDep, current_user: AuthUserDep) -> User
     """Retrieve full details for the currently authenticated user."""
     user = await _get_user_or_404(db, current_user.id)
     return await _build_user_detail(db, user)
+
+
+# ---------------------------------------------------------------------------
+# GET /users/me/events -- Events created and registered by the current user
+# ---------------------------------------------------------------------------
+
+
+@router.get("/me/events", response_model=MyEventsResponse)
+async def get_my_events(db: DbDep, current_user: AuthUserDep) -> MyEventsResponse:
+    """Return events the authenticated user created and events they registered for."""
+    user_id = current_user.id
+
+    def _location_summary(raw: dict[str, Any]) -> str:
+        loc = raw.get("location", {})
+        if raw.get("is_online"):
+            return "Online Event"
+        venue = loc.get("venue_name")
+        city = loc.get("city", "")
+        state = loc.get("state", "")
+        if venue:
+            return f"{venue}, {city}"
+        return f"{city}, {state}".strip(", ")
+
+    async def _build_items(
+        raw_events: list[dict[str, Any]],
+    ) -> list[MyEventItem]:
+        event_ids = [r["id"] for r in raw_events]
+        counts: dict[int, int] = {}
+        if event_ids:
+            pipeline: list[dict[str, Any]] = [
+                {
+                    "$match": {
+                        "event_id": {"$in": event_ids},
+                        "status": {"$ne": "cancelled"},
+                    }
+                },
+                {"$group": {"_id": "$event_id", "count": {"$sum": 1}}},
+            ]
+            async for doc in await db["attendance"].aggregate(pipeline):
+                counts[doc["_id"]] = doc["count"]
+
+        return [
+            MyEventItem(
+                id=r["id"],
+                title=r["title"],
+                start_time=r["start_time"],
+                end_time=r["end_time"],
+                category=r.get("category", "Other"),
+                is_online=r.get("is_online", False),
+                image_url=r.get("image_url"),
+                location_summary=_location_summary(r),
+                price=r.get("price", 0),
+                status=r.get("status"),
+                attending_count=counts.get(r["id"], 0),
+            )
+            for r in raw_events
+        ]
+
+    created_raw = await (
+        db["events"]
+        .find({"organizer_user_id": user_id})
+        .sort("start_time", -1)
+        .to_list(length=50)
+    )
+
+    attendance_records = await (
+        db["attendance"].find({"user_id": user_id}).sort("_id", -1).to_list(length=None)
+    )
+    registered_event_ids: list[int] = []
+    seen: set[int] = set()
+    for rec in attendance_records:
+        eid = rec.get("event_id")
+        if not isinstance(eid, int) or eid in seen:
+            continue
+        seen.add(eid)
+        if rec.get("status") != "cancelled":
+            registered_event_ids.append(eid)
+
+    registered_raw: list[dict[str, Any]] = []
+    if registered_event_ids:
+        id_order = {eid: idx for idx, eid in enumerate(registered_event_ids)}
+        raw_list = await (
+            db["events"]
+            .find({"id": {"$in": registered_event_ids}})
+            .to_list(length=None)
+        )
+        raw_list.sort(key=lambda r: id_order.get(r["id"], 0))
+        registered_raw = raw_list
+
+    return MyEventsResponse(
+        created=await _build_items(created_raw),
+        registered=await _build_items(registered_raw),
+    )
 
 
 # ---------------------------------------------------------------------------
