@@ -33,7 +33,10 @@ describe("AuthNav", () => {
       "href",
       "/admin/events",
     );
-    expect(screen.getByText("Admin User")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Admin User" })).toHaveAttribute(
+      "href",
+      "/profile",
+    );
   });
 
   it("does not show the admin queue link for non-admin users", () => {
@@ -75,6 +78,9 @@ describe("AuthNav", () => {
 
     render(<AuthNav />);
 
-    expect(screen.getByText("Pat Example")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Pat Example" })).toHaveAttribute(
+      "href",
+      "/profile",
+    );
   });
 });

@@ -82,9 +82,12 @@ export default function Navbar() {
                   Admin Queue
                 </Link>
               )}
-              <span className="hidden text-sm text-gray-700 sm:inline">
+              <Link
+                href="/profile"
+                className="hidden text-sm text-gray-700 transition hover:text-black sm:inline"
+              >
                 {displayName(user.first_name, user.last_name, user.name)}
-              </span>
+              </Link>
               <a
                 href="/logout"
                 className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:border-black hover:text-black"
