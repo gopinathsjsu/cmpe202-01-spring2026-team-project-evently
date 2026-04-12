@@ -437,6 +437,84 @@ async def test_sync_saved_calendar_to_google_backfills_existing_registration_fir
 
 
 @pytest.mark.asyncio
+async def test_unsync_google_calendar_removes_synced_events_and_disables_sync() -> None:
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["user_calendar_entries"].insert_one(
+        {
+            "user_id": 7,
+            "event_id": 1,
+            "added_at": datetime.now(tz=UTC),
+            "google_calendar_event_id": "google-event-1",
+            "google_calendar_event_url": "https://calendar.google.com/calendar/event?eid=1",
+        }
+    )
+    await db["user_calendar_syncs"].insert_one({"user_id": 7, "google_sync_enabled": True})
+
+    _, client = _make_client(db, _auth_user(7))
+    delete_google_calendar_event = AsyncMock(return_value=None)
+
+    with (
+        patch.object(
+            users_routes,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            users_routes,
+            "delete_google_calendar_event",
+            delete_google_calendar_event,
+        ),
+    ):
+        async with client:
+            resp = await client.delete("/users/7/calendar/sync/google")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "google_sync_enabled": False,
+        "unsynced_count": 1,
+        "status": "disabled",
+    }
+    saved = await db["user_calendar_entries"].find_one({"user_id": 7, "event_id": 1})
+    assert saved is not None
+    assert saved["google_calendar_event_id"] is None
+    assert saved["google_calendar_event_url"] is None
+    sync_state = await db["user_calendar_syncs"].find_one({"user_id": 7})
+    assert sync_state is not None
+    assert sync_state["google_sync_enabled"] is False
+    delete_google_calendar_event.assert_awaited_once_with(
+        "google-access-token",
+        "google-event-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_unsync_google_calendar_disables_sync_when_no_google_events_exist() -> None:
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["user_calendar_entries"].insert_one(
+        {"user_id": 7, "event_id": 1, "added_at": datetime.now(tz=UTC)}
+    )
+    await db["user_calendar_syncs"].insert_one({"user_id": 7, "google_sync_enabled": True})
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.delete("/users/7/calendar/sync/google")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "google_sync_enabled": False,
+        "unsynced_count": 0,
+        "status": "disabled",
+    }
+    sync_state = await db["user_calendar_syncs"].find_one({"user_id": 7})
+    assert sync_state is not None
+    assert sync_state["google_sync_enabled"] is False
+
+
+@pytest.mark.asyncio
 async def test_add_event_to_app_calendar_syncs_when_google_sync_enabled() -> None:
     db = _FakeDb()
     await db["users"].insert_one(_user_doc(7))

@@ -31,6 +31,12 @@ interface GoogleCalendarSyncResponse {
   status: "enabled";
 }
 
+interface GoogleCalendarUnsyncResponse {
+  google_sync_enabled: boolean;
+  unsynced_count: number;
+  status: "disabled";
+}
+
 interface CalendarViewOption {
   label: string;
   enabled: boolean;
@@ -156,6 +162,7 @@ export default function CalendarPage() {
   const [calendarLoading, setCalendarLoading] = useState(true);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
+  const [disconnectLoading, setDisconnectLoading] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
 
@@ -282,6 +289,11 @@ export default function CalendarPage() {
     return dateKey(new Date(calendarLoadedAt));
   }, [calendarLoadedAt]);
 
+  const hasGoogleSyncedItems = useMemo(
+    () => normalizedItems.some((item) => item.google_synced),
+    [normalizedItems],
+  );
+
   async function reloadCalendar() {
     if (!user) {
       return;
@@ -322,6 +334,45 @@ export default function CalendarPage() {
       );
     } finally {
       setSyncLoading(false);
+    }
+  }
+
+  async function handleDisconnectGoogleCalendar() {
+    if (!user) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Disconnect Google Calendar? This will remove Evently's synced copies from Google Calendar and stop future syncs.",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDisconnectLoading(true);
+    setSyncMessage(null);
+    setSyncError(null);
+
+    try {
+      const response = await apiFetch<GoogleCalendarUnsyncResponse>(
+        `/users/${user.id}/calendar/sync/google`,
+        {
+          method: "DELETE",
+        },
+      );
+      await reloadCalendar();
+      setGoogleSyncEnabled(response.google_sync_enabled);
+      setSyncMessage(
+        response.unsynced_count > 0
+          ? `Disconnected Google Calendar and removed ${response.unsynced_count} synced event${response.unsynced_count === 1 ? "" : "s"}.`
+          : "Google Calendar sync is turned off.",
+      );
+    } catch (error: unknown) {
+      setSyncError(
+        getErrorMessage(error, "Could not disconnect Google Calendar."),
+      );
+    } finally {
+      setDisconnectLoading(false);
     }
   }
 
@@ -394,10 +445,16 @@ export default function CalendarPage() {
                   {user?.first_name ? `${user.first_name}'s Calendar` : "My Calendar"}
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm text-gray-600">
-                  Registered events appear here automatically, and you can sync your Evently calendar to Google Calendar whenever you are ready.
+                  Registered events appear here automatically, and you can sync or disconnect your Evently calendar from Google Calendar whenever you are ready.
                 </p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div
+                className={`grid gap-3 ${
+                  googleSyncEnabled || hasGoogleSyncedItems
+                    ? "sm:grid-cols-4"
+                    : "sm:grid-cols-3"
+                }`}
+              >
                 <Link
                   href="/create"
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:bg-gray-800"
@@ -408,7 +465,7 @@ export default function CalendarPage() {
                 <button
                   type="button"
                   onClick={handleSyncToGoogleCalendar}
-                  disabled={syncLoading}
+                  disabled={syncLoading || disconnectLoading}
                   className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-800 transition hover:border-black hover:text-black disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <RefreshIcon className="h-4 w-4" />
@@ -418,6 +475,17 @@ export default function CalendarPage() {
                       ? "Resync Google Calendar"
                       : "Sync to Google Calendar"}
                 </button>
+                {googleSyncEnabled || hasGoogleSyncedItems ? (
+                  <button
+                    type="button"
+                    onClick={handleDisconnectGoogleCalendar}
+                    disabled={syncLoading || disconnectLoading}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RefreshIcon className="h-4 w-4" />
+                    {disconnectLoading ? "Disconnecting..." : "Disconnect Google Calendar"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={handleCalendarExport}
@@ -457,12 +525,25 @@ export default function CalendarPage() {
                     <button
                       type="button"
                       onClick={handleSyncToGoogleCalendar}
-                      disabled={syncLoading}
+                      disabled={syncLoading || disconnectLoading}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium text-gray-700 transition hover:border-black hover:text-black disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <RefreshIcon className="h-4 w-4" />
                       {syncLoading ? "Syncing..." : "Sync to Google Calendar"}
                     </button>
+                    {googleSyncEnabled || hasGoogleSyncedItems ? (
+                      <button
+                        type="button"
+                        onClick={handleDisconnectGoogleCalendar}
+                        disabled={syncLoading || disconnectLoading}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <RefreshIcon className="h-4 w-4" />
+                        {disconnectLoading
+                          ? "Disconnecting..."
+                          : "Disconnect Google Calendar"}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 

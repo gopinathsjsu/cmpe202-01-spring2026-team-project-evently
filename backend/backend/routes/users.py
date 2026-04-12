@@ -22,6 +22,7 @@ from backend.routes.auth import (
 )
 from backend.services.calendar_sync import (
     create_google_calendar_event,
+    delete_google_calendar_event,
     google_calendar_event_payload,
 )
 
@@ -138,6 +139,12 @@ class GoogleCalendarSyncResponse(BaseModel):
     synced_count: int
     skipped_count: int
     status: Literal["enabled"] = "enabled"
+
+
+class GoogleCalendarUnsyncResponse(BaseModel):
+    google_sync_enabled: bool = False
+    unsynced_count: int
+    status: Literal["disabled"] = "disabled"
 
 
 # ---------------------------------------------------------------------------
@@ -492,6 +499,57 @@ async def sync_user_calendar_to_google(
         synced_count=synced_count,
         skipped_count=skipped_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# DELETE /users/{user_id}/calendar/sync/google -- Disable + remove Google sync
+# ---------------------------------------------------------------------------
+
+
+@router.delete(
+    "/{user_id}/calendar/sync/google",
+    response_model=GoogleCalendarUnsyncResponse,
+)
+async def unsync_user_calendar_from_google(
+    db: DbDep,
+    request: Request,
+    user_id: int,
+    current_user: AuthUserDep,
+) -> GoogleCalendarUnsyncResponse:
+    _ensure_same_user(current_user, user_id)
+    await _get_user_or_404(db, user_id)
+
+    entries = await _calendar_entries_for_user(db, user_id)
+    synced_entries = [
+        entry
+        for entry in entries
+        if _string_value(entry.get("google_calendar_event_id")) is not None
+    ]
+
+    access_token: str | None = None
+    unsynced_count = 0
+    for entry in synced_entries:
+        google_event_id = _string_value(entry.get("google_calendar_event_id"))
+        if google_event_id is None:
+            continue
+
+        if access_token is None:
+            access_token = await get_google_calendar_access_token(request)
+
+        await delete_google_calendar_event(access_token, google_event_id)
+        await db[USER_CALENDAR_COLLECTION].update_one(
+            {"_id": entry["_id"]},
+            {
+                "$set": {
+                    "google_calendar_event_id": None,
+                    "google_calendar_event_url": None,
+                }
+            },
+        )
+        unsynced_count += 1
+
+    await _set_google_sync_enabled(db, user_id, False)
+    return GoogleCalendarUnsyncResponse(unsynced_count=unsynced_count)
 
 
 # ---------------------------------------------------------------------------
