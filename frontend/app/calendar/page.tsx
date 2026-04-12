@@ -394,7 +394,7 @@ export default function CalendarPage() {
                   {user?.first_name ? `${user.first_name}'s Calendar` : "My Calendar"}
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm text-gray-600">
-                  Save events here first, then sync your Evently calendar to Google Calendar whenever you are ready.
+                  Registered events appear here automatically, and you can sync your Evently calendar to Google Calendar whenever you are ready.
                 </p>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
@@ -511,7 +511,7 @@ export default function CalendarPage() {
                     </div>
                   ) : (
                     <p className="mt-4 text-sm text-gray-500">
-                      Save events from their detail pages to build your personal calendar.
+                      Register for events to build your personal calendar.
                     </p>
                   )}
                 </div>

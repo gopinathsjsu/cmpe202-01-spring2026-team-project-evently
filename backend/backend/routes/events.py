@@ -137,12 +137,16 @@ class AttendanceRegisterResponse(BaseModel):
     event_id: int
     user_id: int
     status: Literal["going"] = "going"
+    in_calendar: bool = True
+    google_synced: bool = False
 
 
 class AttendanceCancelResponse(BaseModel):
     event_id: int
     user_id: int
     status: Literal["cancelled"] = "cancelled"
+    in_calendar: bool = False
+    google_synced: bool = False
 
 
 class AppCalendarStatusResponse(BaseModel):
@@ -407,6 +411,58 @@ async def _delete_google_calendar_sync_if_present(
     return True
 
 
+async def _ensure_event_in_app_calendar(
+    db: AsyncDatabase[dict[str, Any]],
+    request: Request,
+    *,
+    user_id: int,
+    event: Event,
+) -> bool:
+    existing = await _calendar_entry_for_user(db, user_id=user_id, event_id=event.id)
+    google_synced = False
+
+    if existing is None:
+        document: dict[str, object] = {
+            "user_id": user_id,
+            "event_id": event.id,
+            "added_at": datetime.now(tz=UTC),
+        }
+        if await _google_sync_enabled(db, user_id):
+            document.update(await _create_google_calendar_sync_fields(request, event))
+            google_synced = True
+
+        await db[USER_CALENDAR_COLLECTION].insert_one(document)
+        return google_synced
+
+    if _string_value(
+        existing.get("google_calendar_event_id")
+    ) is None and await _google_sync_enabled(db, user_id):
+        sync_fields = await _create_google_calendar_sync_fields(request, event)
+        await db[USER_CALENDAR_COLLECTION].update_one(
+            {"_id": existing["_id"]},
+            {"$set": sync_fields},
+        )
+        return True
+
+    return _string_value(existing.get("google_calendar_event_id")) is not None
+
+
+async def _remove_event_from_app_calendar_if_present(
+    db: AsyncDatabase[dict[str, Any]],
+    request: Request,
+    *,
+    user_id: int,
+    event_id: int,
+) -> bool:
+    existing = await _calendar_entry_for_user(db, user_id=user_id, event_id=event_id)
+    if existing is None:
+        return False
+
+    google_synced = await _delete_google_calendar_sync_if_present(request, existing)
+    await db[USER_CALENDAR_COLLECTION].delete_one({"_id": existing["_id"]})
+    return google_synced
+
+
 # ---------------------------------------------------------------------------
 # GET /events/  — List with filters, search, sort, pagination
 # ---------------------------------------------------------------------------
@@ -642,41 +698,12 @@ async def add_event_to_app_calendar(
     if raw_event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    event = Event(**raw_event)
-    existing = await _calendar_entry_for_user(
-        db, user_id=current_user.id, event_id=event_id
+    google_synced = await _ensure_event_in_app_calendar(
+        db,
+        request,
+        user_id=current_user.id,
+        event=Event(**raw_event),
     )
-    google_synced = False
-    if existing is None:
-        document: dict[str, object] = {
-            "user_id": current_user.id,
-            "event_id": event_id,
-            "added_at": datetime.now(tz=UTC),
-        }
-        if await _google_sync_enabled(db, current_user.id):
-            document.update(await _create_google_calendar_sync_fields(request, event))
-            google_synced = True
-
-        await db[USER_CALENDAR_COLLECTION].insert_one(document)
-        return AppCalendarMutationResponse(
-            event_id=event_id,
-            status="added",
-            google_synced=google_synced,
-        )
-
-    if _string_value(
-        existing.get("google_calendar_event_id")
-    ) is None and await _google_sync_enabled(db, current_user.id):
-        sync_fields = await _create_google_calendar_sync_fields(request, event)
-        await db[USER_CALENDAR_COLLECTION].update_one(
-            {"_id": existing["_id"]},
-            {"$set": sync_fields},
-        )
-        google_synced = True
-    else:
-        google_synced = (
-            _string_value(existing.get("google_calendar_event_id")) is not None
-        )
 
     return AppCalendarMutationResponse(
         event_id=event_id,
@@ -701,14 +728,18 @@ async def remove_event_from_app_calendar(
     if raw_event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    existing = await _calendar_entry_for_user(
-        db, user_id=current_user.id, event_id=event_id
-    )
-    if existing is None:
+    if (
+        await _calendar_entry_for_user(db, user_id=current_user.id, event_id=event_id)
+        is None
+    ):
         raise HTTPException(status_code=404, detail="Calendar entry not found")
 
-    google_synced = await _delete_google_calendar_sync_if_present(request, existing)
-    await db[USER_CALENDAR_COLLECTION].delete_one({"_id": existing["_id"]})
+    google_synced = await _remove_event_from_app_calendar_if_present(
+        db,
+        request,
+        user_id=current_user.id,
+        event_id=event_id,
+    )
     return AppCalendarMutationResponse(
         event_id=event_id,
         status="removed",
@@ -723,7 +754,7 @@ async def remove_event_from_app_calendar(
 
 @router.post("/{event_id}/attendance", response_model=AttendanceRegisterResponse)
 async def register_attendance(
-    db: DbDep, event_id: int, current_user: AuthUserDep
+    db: DbDep, request: Request, event_id: int, current_user: AuthUserDep
 ) -> AttendanceRegisterResponse:
     """Register the authenticated user for a given event."""
     raw_event = await db["events"].find_one(_public_event_visibility_filter(event_id))
@@ -741,15 +772,26 @@ async def register_attendance(
         sort=[("_id", DESCENDING)],
     )
     if existing is not None and existing["status"] != AttendanceStatus.Cancelled.value:
-        return AttendanceRegisterResponse(event_id=event_id, user_id=current_user.id)
+        google_synced = await _ensure_event_in_app_calendar(
+            db,
+            request,
+            user_id=current_user.id,
+            event=event,
+        )
+        return AttendanceRegisterResponse(
+            event_id=event_id,
+            user_id=current_user.id,
+            google_synced=google_synced,
+        )
 
     await _ensure_registered_count(db, event_id)
     if not await _reserve_event_slot(db, event_id):
         raise HTTPException(status_code=400, detail="This event is sold out")
 
+    inserted_attendance_id: object | None = None
     try:
         if existing is None:
-            await db["attendance"].insert_one(
+            insert_result = await db["attendance"].insert_one(
                 {
                     "event_id": event_id,
                     "user_id": current_user.id,
@@ -757,6 +799,7 @@ async def register_attendance(
                     "checked_in_at": None,
                 }
             )
+            inserted_attendance_id = insert_result.inserted_id
         else:
             result = await db["attendance"].update_one(
                 {"_id": existing["_id"]},
@@ -771,11 +814,34 @@ async def register_attendance(
                 raise HTTPException(
                     status_code=409, detail="Registration state changed"
                 )
+
+        google_synced = await _ensure_event_in_app_calendar(
+            db,
+            request,
+            user_id=current_user.id,
+            event=event,
+        )
     except Exception:
+        if inserted_attendance_id is not None:
+            await db["attendance"].delete_one({"_id": inserted_attendance_id})
+        elif existing is not None:
+            await db["attendance"].update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": {
+                        "status": existing["status"],
+                        "checked_in_at": existing.get("checked_in_at"),
+                    }
+                },
+            )
         await _release_event_slot(db, event_id)
         raise
 
-    return AttendanceRegisterResponse(event_id=event_id, user_id=current_user.id)
+    return AttendanceRegisterResponse(
+        event_id=event_id,
+        user_id=current_user.id,
+        google_synced=google_synced,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -785,7 +851,7 @@ async def register_attendance(
 
 @router.delete("/{event_id}/attendance", response_model=AttendanceCancelResponse)
 async def cancel_attendance(
-    db: DbDep, event_id: int, current_user: AuthUserDep
+    db: DbDep, request: Request, event_id: int, current_user: AuthUserDep
 ) -> AttendanceCancelResponse:
     """Cancel the authenticated user's registration for a given event."""
     event = await db["events"].find_one(
@@ -816,7 +882,33 @@ async def cancel_attendance(
     await _ensure_registered_count(db, event_id)
     await _release_event_slot(db, event_id)
 
-    return AttendanceCancelResponse(event_id=event_id, user_id=current_user.id)
+    try:
+        google_synced = await _remove_event_from_app_calendar_if_present(
+            db,
+            request,
+            user_id=current_user.id,
+            event_id=event_id,
+        )
+    except Exception:
+        await db["attendance"].update_one(
+            {"_id": existing["_id"]},
+            {
+                "$set": {
+                    "status": existing["status"],
+                    "checked_in_at": existing.get("checked_in_at"),
+                }
+            },
+        )
+        await db["events"].update_one(
+            {"id": event_id}, {"$inc": {"registered_count": 1}}
+        )
+        raise
+
+    return AttendanceCancelResponse(
+        event_id=event_id,
+        user_id=current_user.id,
+        google_synced=google_synced,
+    )
 
 
 # ---------------------------------------------------------------------------

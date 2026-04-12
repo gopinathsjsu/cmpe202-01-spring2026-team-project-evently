@@ -188,7 +188,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I register for an event?",
     answer:
-      'Browse events on the home page or search for specific events. Click on an event to view its details, then click "Register Now". If you also want the event in your personal planner, use "Add to My Calendar" on the event page and sync it to Google Calendar from My Calendar when you are ready.',
+      'Browse events on the home page or search for specific events. Click on an event to view its details, then click "Register Now". Registration automatically adds the event to My Calendar, and you can sync that calendar to Google Calendar from the My Calendar page whenever you are ready.',
     category: "Ticketing",
   },
   {
@@ -200,7 +200,7 @@ const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How do I cancel my registration?",
     answer:
-      'Open the event details page for the event you joined and click "Cancel Registration". Your attendee status is updated right away. Saved calendar items are managed separately through "Add to My Calendar" on the event page.',
+      'Open the event details page for the event you joined and click "Cancel Registration". Your attendee status is updated right away, and the event is automatically removed from My Calendar at the same time.',
     category: "Ticketing",
   },
   {

@@ -19,16 +19,18 @@ interface AttendanceStatusResponse {
   status: "going" | "checked_in" | "cancelled" | null;
 }
 
+interface AttendanceMutationResponse {
+  event_id: number;
+  user_id: number;
+  status: "going" | "cancelled";
+  in_calendar: boolean;
+  google_synced: boolean;
+}
+
 interface AppCalendarStatusResponse {
   event_id: number;
   in_calendar: boolean;
   google_sync_enabled: boolean;
-}
-
-interface AppCalendarMutationResponse {
-  event_id: number;
-  status: "added" | "removed";
-  google_synced: boolean;
 }
 
 function formatPrice(price: number): string {
@@ -56,7 +58,6 @@ export function RegistrationCard({
   const [status, setStatus] = useState<AttendanceStatusResponse["status"]>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarStatusLoading, setCalendarStatusLoading] = useState(false);
   const [inCalendar, setInCalendar] = useState(false);
   const [googleSyncEnabled, setGoogleSyncEnabled] = useState(false);
@@ -155,10 +156,16 @@ export function RegistrationCard({
     setError(null);
 
     try {
-      await apiFetch(`/events/${eventId}/attendance`, {
+      const response = await apiFetch<AttendanceMutationResponse>(`/events/${eventId}/attendance`, {
         method: "DELETE",
       });
-      setStatus("cancelled");
+      setStatus(response.status);
+      setInCalendar(response.in_calendar);
+      setCalendarMessage(
+        response.google_synced
+          ? "Registration cancelled. Removed from My Calendar and Google Calendar."
+          : "Registration cancelled. Removed from My Calendar.",
+      );
     } catch (nextError) {
       setError(getErrorMessage(nextError, "Could not cancel your registration."));
     } finally {
@@ -172,77 +179,23 @@ export function RegistrationCard({
     setError(null);
 
     try {
-      const response = await apiFetch<AttendanceStatusResponse>(
+      const response = await apiFetch<AttendanceMutationResponse>(
         `/events/${eventId}/attendance`,
         {
           method: "POST",
         },
       );
       setStatus(response.status);
+      setInCalendar(response.in_calendar);
+      setCalendarMessage(
+        response.google_synced
+          ? "Registered. Added to My Calendar and synced to Google Calendar."
+          : "Registered. Added to My Calendar.",
+      );
     } catch (nextError) {
       setError(getErrorMessage(nextError, "Could not register for this event."));
     } finally {
       setActionLoading(false);
-    }
-  }
-
-  async function handleAddToAppCalendar() {
-    setCalendarLoading(true);
-    setCalendarMessage(null);
-    setError(null);
-
-    try {
-      const response = await apiFetch<AppCalendarMutationResponse>(
-        `/events/${eventId}/calendar`,
-        {
-          method: "POST",
-        },
-      );
-      setInCalendar(true);
-      setCalendarMessage(
-        response.google_synced
-          ? "Added to My Calendar and synced to Google Calendar."
-          : "Added to My Calendar.",
-      );
-    } catch (nextError) {
-      setError(
-        getErrorMessage(
-          nextError,
-          "Could not add this event to My Calendar.",
-        ),
-      );
-    } finally {
-      setCalendarLoading(false);
-    }
-  }
-
-  async function handleRemoveFromAppCalendar() {
-    setCalendarLoading(true);
-    setCalendarMessage(null);
-    setError(null);
-
-    try {
-      const response = await apiFetch<AppCalendarMutationResponse>(
-        `/events/${eventId}/calendar`,
-        {
-          method: "DELETE",
-        },
-      );
-      setInCalendar(false);
-      setCalendarMessage(
-        response.google_synced
-          ? "Removed from My Calendar and Google Calendar."
-          : "Removed from My Calendar.",
-      );
-    } catch (nextError) {
-      setError(
-        getErrorMessage(
-          nextError,
-          "Could not remove this event from My Calendar.",
-        ),
-      );
-    } finally {
-      setCalendarLoading(false);
     }
   }
 
@@ -324,32 +277,16 @@ export function RegistrationCard({
         <div className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-500">
           Checking your calendar...
         </div>
+      ) : user ? (
+        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+          {isRegistered
+            ? "This event stays in My Calendar while you are registered."
+            : "Registering adds this event to My Calendar automatically, and cancelling removes it."}
+        </p>
       ) : (
-        <>
-          <AuthRequiredAction
-            actionLabel={
-              inCalendar ? "remove this event from your calendar" : "save this event to your calendar"
-            }
-            onAuthenticatedClick={
-              inCalendar ? handleRemoveFromAppCalendar : handleAddToAppCalendar
-            }
-            nextPath={pathname || `/events/${eventId}`}
-            disabled={calendarLoading}
-            className={`mt-3 w-full rounded-full py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-              inCalendar
-                ? "border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-                : "bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-            }`}
-          >
-            {calendarLoading
-              ? inCalendar
-                ? "Removing..."
-                : "Saving..."
-              : inCalendar
-                ? "Remove from My Calendar"
-                : "Add to My Calendar"}
-          </AuthRequiredAction>
-        </>
+        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+          Register to have this event added to My Calendar automatically.
+        </p>
       )}
     </>
   );
