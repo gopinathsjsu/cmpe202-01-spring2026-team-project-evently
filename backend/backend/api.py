@@ -25,6 +25,7 @@ from backend.seed import ensure_required_startup_users
 
 _logger = logging.getLogger(__name__)
 from backend.services.notifications.arq import create_arq_pool
+from backend.services.notifications.email import create_email_notification_service
 
 
 @asynccontextmanager
@@ -36,6 +37,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     arq = await create_arq_pool()
     app.state.arq = arq
+
+    email_notification_service = create_email_notification_service()
+    app.state.email_notification_service = email_notification_service
 
     yield
     await db_client.close()
