@@ -15,6 +15,8 @@ from backend.db import get_db
 from backend.routes import events as events_routes
 from backend.routes import users as users_routes
 from backend.routes.auth import AuthSessionUser, require_authenticated_user
+from backend.services.notifications.arq import get_arq
+from backend.services.notifications.email import get_email_notif_service
 
 
 def _sort_key(doc: dict[str, object], field: str) -> datetime | int | float | str:
@@ -173,6 +175,8 @@ def _make_client(
     app = create_app()
     app.state.db = db
     app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_arq] = lambda: AsyncMock()
+    app.dependency_overrides[get_email_notif_service] = lambda: AsyncMock()
     if auth_user is not None:
         app.dependency_overrides[require_authenticated_user] = lambda: auth_user
 

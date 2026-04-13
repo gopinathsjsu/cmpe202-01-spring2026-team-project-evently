@@ -3,6 +3,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
+from arq import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
@@ -30,6 +31,11 @@ from backend.services.calendar_sync import (
     delete_google_calendar_event,
     google_calendar_event_payload,
 )
+from backend.services.notifications.arq import get_arq
+from backend.services.notifications.email import (
+    EmailNotificationService,
+    get_email_notif_service,
+)
 
 router = APIRouter()
 
@@ -37,6 +43,8 @@ DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 AuthUserDep = Annotated[AuthSessionUser, Depends(require_authenticated_user)]
 USER_CALENDAR_COLLECTION = "user_calendar_entries"
 USER_CALENDAR_SYNC_COLLECTION = "user_calendar_syncs"
+ArqDep = Annotated[ArqRedis, Depends(get_arq)]
+EmailNotifDep = Annotated[EmailNotificationService, Depends(get_email_notif_service)]
 
 # ---------------------------------------------------------------------------
 # Response schemas
@@ -988,7 +996,11 @@ async def cancel_attendance(
 
 @router.post("/", response_model=EventDetail, status_code=201)
 async def create_event(
-    db: DbDep, body: EventCreate, current_user: AuthUserDep
+    db: DbDep,
+    body: EventCreate,
+    current_user: AuthUserDep,
+    arq: ArqDep,
+    email_notif: EmailNotifDep,
 ) -> EventDetail:
     """Create a new event and return its full detail."""
     new_id = await _next_event_id(db)
