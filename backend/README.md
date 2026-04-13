@@ -11,6 +11,7 @@ The backend requires the following environment variables to be set:
 | `DB_USERNAME`  | MongoDB root username       | `admin`                                    |
 | `DB_PASSWORD`  | MongoDB root password       | `password`                                 |
 | `DATABASE_URL` | Full MongoDB connection URL | `mongodb://admin:password@localhost:27017` |
+| `REDIS_URL`    | Full Redis connection URL   | `redis://localhost:6379/0`                 |
 
 **Setup:**
 
