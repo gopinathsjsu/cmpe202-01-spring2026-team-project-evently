@@ -702,8 +702,8 @@ async def test_sync_saved_calendar_to_google_rolls_back_google_event_on_local_up
         ),
     ):
         async with client:
-            with pytest.raises(RuntimeError, match="db update failed"):
-                await client.post("/users/7/calendar/sync/google")
+            response = await client.post("/users/7/calendar/sync/google")
+            assert response.status_code == 502
 
     delete_google_calendar_event.assert_awaited_once_with(
         "google-access-token",

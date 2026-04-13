@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -6,9 +7,11 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request
 
 from backend.app_config import build_frontend_settings
 from backend.routes.auth import router as auth_router
@@ -17,6 +20,8 @@ from backend.routes.events import router as events_router
 from backend.routes.users import UPLOAD_DIR
 from backend.routes.users import router as users_router
 from backend.seed import ensure_required_startup_users
+
+_logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -37,6 +42,20 @@ def create_app() -> FastAPI:
     app.state.frontend_settings = build_frontend_settings(getenv("FRONTEND_URL"))
     frontend_origin = app.state.frontend_settings.primary_origin or ""
     session_https_only = frontend_origin.startswith("https://")
+
+    # Catch-all handler: converts unhandled exceptions into JSON 500 responses
+    # *inside* the ExceptionMiddleware so CORSMiddleware can still add CORS
+    # headers.  Without this, raw exceptions propagate past CORSMiddleware and
+    # the browser blocks the header-less 500, surfacing as "NetworkError".
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        _logger.exception("Unhandled exception on %s %s", request.method, request.url)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
 
     app.add_middleware(
         CORSMiddleware,

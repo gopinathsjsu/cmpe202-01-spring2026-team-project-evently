@@ -20,11 +20,35 @@ interface EventFromApi {
   attending_count: number;
 }
 
+const WEEKDAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
+const MONTH_LABELS = [
+  "JAN",
+  "FEB",
+  "MAR",
+  "APR",
+  "MAY",
+  "JUN",
+  "JUL",
+  "AUG",
+  "SEP",
+  "OCT",
+  "NOV",
+  "DEC",
+] as const;
+
 function formatEventDate(iso: string): string {
   const d = new Date(iso);
-  const day = d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
-  const month = d.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
-  return `${day}, ${month} ${d.getDate()} • ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}`;
+  const day = WEEKDAY_LABELS[d.getUTCDay()];
+  const month = MONTH_LABELS[d.getUTCMonth()];
+  const dayOfMonth = d.getUTCDate();
+  let hour = d.getUTCHours();
+  const minute = String(d.getUTCMinutes()).padStart(2, "0");
+  const suffix = hour >= 12 ? "PM" : "AM";
+  hour %= 12;
+  if (hour === 0) {
+    hour = 12;
+  }
+  return `${day}, ${month} ${dayOfMonth} • ${hour}:${minute} ${suffix} UTC`;
 }
 function formatPrice(price: number): string {
   return price === 0 ? "Free" : `$${price.toFixed(2)}`;

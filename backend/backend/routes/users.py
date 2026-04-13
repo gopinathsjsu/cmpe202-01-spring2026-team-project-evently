@@ -576,9 +576,21 @@ async def sync_user_calendar_to_google(
     await _get_user_or_404(db, user_id)
 
     access_token = await get_google_calendar_access_token(request)
-    await _backfill_registered_calendar_entries(db, user_id)
-    entries = await _calendar_entries_for_user(db, user_id)
-    events = await _events_by_id(db, [int(entry["event_id"]) for entry in entries])
+
+    try:
+        await _backfill_registered_calendar_entries(db, user_id)
+        entries = await _calendar_entries_for_user(db, user_id)
+        events = await _events_by_id(db, [int(entry["event_id"]) for entry in entries])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "Database error while preparing calendar sync for user %s", user_id
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not read your calendar data. Please try again.",
+        ) from exc
 
     synced_count = 0
     skipped_count = 0
@@ -618,6 +630,8 @@ async def sync_user_calendar_to_google(
                     }
                 },
             )
+        except HTTPException:
+            raise
         except Exception:
             try:
                 await delete_google_calendar_event(access_token, google_event_id)
@@ -625,7 +639,10 @@ async def sync_user_calendar_to_google(
                 logging.getLogger(__name__).exception(
                     "Failed to roll back Google Calendar event after calendar sync persistence failure"
                 )
-            raise
+            raise HTTPException(
+                status_code=502,
+                detail="Could not save Google Calendar sync data. Please try again.",
+            )
         synced_count += 1
 
     await _set_google_sync_enabled(db, user_id, True)
