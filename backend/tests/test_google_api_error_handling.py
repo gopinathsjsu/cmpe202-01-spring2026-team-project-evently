@@ -59,11 +59,10 @@ async def test_create_google_calendar_event_invalid_json_raises_502(
     with patch(
         "backend.services.calendar_sync.httpx.AsyncClient",
         return_value=_FakeAsyncClient(response),
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await calendar_sync.create_google_calendar_event(
-                "token", {"summary": "Test"}
-            )
+    ), pytest.raises(HTTPException) as exc_info:
+        await calendar_sync.create_google_calendar_event(
+            "token", {"summary": "Test"}
+        )
 
     assert exc_info.value.status_code == 502
     assert exc_info.value.detail == "Google Calendar returned an invalid response."
@@ -86,9 +85,8 @@ async def test_refresh_oauth_token_invalid_json_raises_502(
     with patch(
         "backend.routes.auth.httpx.AsyncClient",
         return_value=_FakeAsyncClient(response),
-    ):
-        with pytest.raises(HTTPException) as exc_info:
-            await auth_routes._refresh_oauth_token(token)
+    ), pytest.raises(HTTPException) as exc_info:
+        await auth_routes._refresh_oauth_token(token)
 
     assert exc_info.value.status_code == 502
     assert exc_info.value.detail == "Could not refresh Google Calendar access."
