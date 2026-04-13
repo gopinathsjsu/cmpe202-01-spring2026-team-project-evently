@@ -49,6 +49,25 @@ export interface UserDetail {
   events_attended_count: number;
 }
 
+export interface FullUserDetail extends UserDetail {
+  email: string;
+  phone_number: string | null;
+  roles: string[];
+}
+
+export interface ActivityItem {
+  event_id: number;
+  event_title: string;
+  event_image_url: string | null;
+  event_end_time: string | null;
+  action: "attended" | "created" | "registered";
+  date: string;
+}
+
+export interface ActivityResponse {
+  items: ActivityItem[];
+}
+
 export interface EventDetail {
   id: number;
   title: string;
@@ -82,6 +101,25 @@ export interface PendingEventListItem {
   total_capacity: number;
   about: string;
   status: EventStatus;
+}
+
+export interface MyEventItem {
+  id: number;
+  title: string;
+  start_time: string;
+  end_time: string;
+  category: string;
+  is_online: boolean;
+  image_url: string | null;
+  location_summary: string;
+  price: number;
+  status: string | null;
+  attending_count: number;
+}
+
+export interface MyEventsResponse {
+  created: MyEventItem[];
+  registered: MyEventItem[];
 }
 
 export interface EventCreatePayload {

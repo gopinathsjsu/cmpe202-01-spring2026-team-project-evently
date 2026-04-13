@@ -16,6 +16,33 @@ from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
 logger = logging.getLogger(__name__)
 
+REQUIRED_STARTUP_USERS: list[dict[str, str]] = [
+    {
+        "email": "lucas.h.nguyen@sjsu.edu",
+        "first_name": "Lucas",
+        "last_name": "Nguyen",
+        "username": "lucasnguyen",
+    },
+    {
+        "email": "matthew.bernard@sjsu.edu",
+        "first_name": "Matthew",
+        "last_name": "Bernard",
+        "username": "matthewbernard",
+    },
+    {
+        "email": "prajaktajivanrao.ketkar@sjsu.edu",
+        "first_name": "Prajakta",
+        "last_name": "Ketkar",
+        "username": "prajaktaketkar",
+    },
+    {
+        "email": "wyatt.avilla@sjsu.edu",
+        "first_name": "Wyatt",
+        "last_name": "Avilla",
+        "username": "wyattavilla",
+    },
+]
+
 SAMPLE_EVENTS: list[dict[str, Any]] = [
     {
         "id": 1,
@@ -918,6 +945,29 @@ SAMPLE_USERS: list[dict[str, Any]] = [
             "interests": ["Photography", "Ceramics", "Education", "Art"],
         },
     },
+    *[
+        {
+            "id": 8 + index,
+            "username": user["username"],
+            "first_name": user["first_name"],
+            "last_name": user["last_name"],
+            "email": user["email"],
+            "phone_number": None,
+            "roles": ["user"],
+            "profile_photo_url": None,
+            "profile": {
+                "bio": None,
+                "location": None,
+                "website": None,
+                "twitter_handle": None,
+                "instagram_handle": None,
+                "facebook_handle": None,
+                "linkedin_handle": None,
+                "interests": [],
+            },
+        }
+        for index, user in enumerate(REQUIRED_STARTUP_USERS)
+    ],
 ]
 
 SAMPLE_ATTENDANCE: list[dict[str, Any]] = [
@@ -963,6 +1013,89 @@ SAMPLE_FAVORITES: list[dict[str, Any]] = [
     ]
     for uid in range(1, uid_count + 1)
 ]
+
+
+async def _next_available_user_id(db: Any) -> int:
+    highest = await db["users"].find_one(sort=[("id", -1)])
+    if highest is None:
+        return 1
+    return int(highest.get("id", 0)) + 1
+
+
+async def ensure_required_startup_users(db: Any) -> None:
+    """Ensure key team accounts exist and have the expected basic identity fields."""
+    next_user_id: int | None = None
+
+    for required in REQUIRED_STARTUP_USERS:
+        existing = await db["users"].find_one({"email": required["email"]})
+        username_owner = await db["users"].find_one({"username": required["username"]})
+
+        if existing is None:
+            if username_owner is not None:
+                raise RuntimeError(
+                    "Cannot safely provision required startup user "
+                    f"{required['email']}: username {required['username']} is already "
+                    "owned by a different account."
+                )
+            if next_user_id is None:
+                next_user_id = await _next_available_user_id(db)
+            await db["users"].insert_one(
+                {
+                    "id": next_user_id,
+                    "username": required["username"],
+                    "first_name": required["first_name"],
+                    "last_name": required["last_name"],
+                    "email": required["email"],
+                    "phone_number": None,
+                    "roles": ["user"],
+                    "profile_photo_url": None,
+                    "profile": {
+                        "bio": None,
+                        "location": None,
+                        "website": None,
+                        "twitter_handle": None,
+                        "instagram_handle": None,
+                        "facebook_handle": None,
+                        "linkedin_handle": None,
+                        "interests": [],
+                    },
+                }
+            )
+            next_user_id += 1
+            continue
+
+        updates: dict[str, Any] = {}
+        if username_owner is not None and username_owner.get("id") != existing.get(
+            "id"
+        ):
+            raise RuntimeError(
+                "Cannot safely update required startup user "
+                f"{required['email']}: username {required['username']} is already "
+                "owned by a different account."
+            )
+
+        for field in ("first_name", "last_name", "username"):
+            if existing.get(field) != required[field]:
+                updates[field] = required[field]
+
+        if "roles" not in existing:
+            updates["roles"] = ["user"]
+        if "profile_photo_url" not in existing:
+            updates["profile_photo_url"] = None
+        if not isinstance(existing.get("profile"), dict):
+            updates["profile"] = {
+                "bio": None,
+                "location": None,
+                "website": None,
+                "twitter_handle": None,
+                "instagram_handle": None,
+                "facebook_handle": None,
+                "linkedin_handle": None,
+                "interests": [],
+            }
+
+        if updates:
+            await db["users"].update_one({"id": existing["id"]}, {"$set": updates})
 
 
 async def seed(*, force: bool = False) -> None:

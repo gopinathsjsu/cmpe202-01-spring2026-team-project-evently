@@ -146,6 +146,15 @@ function toIcsDate(dateString: string): string {
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === "object" && "detail" in error) {
+    const detail = (error as { detail: unknown }).detail;
+    if (typeof detail === "string") {
+      return detail;
+    }
+  }
+  if (error instanceof TypeError && /network/i.test(error.message)) {
+    return "Could not reach the server. Please check that the backend is running and try again.";
+  }
   if (error instanceof Error) {
     return error.message;
   }

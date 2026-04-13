@@ -78,7 +78,14 @@ async def create_google_calendar_event(
             detail="Google Calendar could not create the event.",
         )
 
-    body = response.json()
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Google Calendar returned an invalid response.",
+        ) from exc
+
     if not isinstance(body, dict):
         raise HTTPException(
             status_code=502,

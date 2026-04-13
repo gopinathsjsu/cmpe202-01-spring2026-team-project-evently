@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ValidationError
 from pymongo.asynchronous.database import AsyncDatabase
 from starlette.requests import Request
 
@@ -116,6 +117,25 @@ class ActivityItem(BaseModel):
 
 class ActivityResponse(BaseModel):
     items: list[ActivityItem]
+
+
+class MyEventItem(BaseModel):
+    id: int
+    title: str
+    start_time: datetime
+    end_time: datetime
+    category: str
+    is_online: bool
+    image_url: str | None = None
+    location_summary: str
+    price: float
+    status: str | None = None
+    attending_count: int = 0
+
+
+class MyEventsResponse(BaseModel):
+    created: list[MyEventItem]
+    registered: list[MyEventItem]
 
 
 class CalendarItem(BaseModel):
@@ -297,6 +317,23 @@ async def _set_google_sync_enabled(
     )
 
 
+async def _update_google_sync_enabled(
+    db: AsyncDatabase[dict[str, Any]], user_id: int, enabled: bool
+) -> None:
+    try:
+        await _set_google_sync_enabled(db, user_id, enabled)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "Failed to update Google Calendar sync settings for user %s", user_id
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not update your Google Calendar sync settings. Please try again.",
+        ) from exc
+
+
 async def _calendar_entries_for_user(
     db: AsyncDatabase[dict[str, Any]], user_id: int
 ) -> list[dict[str, Any]]:
@@ -316,9 +353,46 @@ async def _events_by_id(
         return events
 
     async for raw_event in db["events"].find({"id": {"$in": event_ids}}):
-        event = Event(**raw_event)
+        try:
+            event = Event(**raw_event)
+        except ValidationError:
+            logging.getLogger(__name__).warning(
+                "Skipping invalid event %r while building calendar data",
+                raw_event.get("id"),
+                exc_info=True,
+            )
+            continue
         events[event.id] = event
     return events
+
+
+async def _create_google_calendar_event_for_calendar_sync(
+    request: Request,
+    access_token: str,
+    *,
+    user_id: int,
+    event: Event,
+) -> dict[str, object]:
+    try:
+        return await create_google_calendar_event(
+            access_token,
+            google_calendar_event_payload(
+                event,
+                event_url=_frontend_event_url(request, event.id),
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "Unexpected Google Calendar sync failure for user %s event %s",
+            user_id,
+            event.id,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not sync your calendar to Google Calendar. Please try again.",
+        ) from exc
 
 
 async def _backfill_registered_calendar_entries(
@@ -407,6 +481,111 @@ async def _build_calendar_response(
 
 
 # ---------------------------------------------------------------------------
+# GET /users/me -- Authenticated user's own full profile
+# ---------------------------------------------------------------------------
+
+
+@router.get("/me", response_model=UserDetail)
+async def get_current_user_profile(db: DbDep, current_user: AuthUserDep) -> UserDetail:
+    """Retrieve full details for the currently authenticated user."""
+    user = await _get_user_or_404(db, current_user.id)
+    return await _build_user_detail(db, user)
+
+
+# ---------------------------------------------------------------------------
+# GET /users/me/events -- Events created and registered by the current user
+# ---------------------------------------------------------------------------
+
+
+@router.get("/me/events", response_model=MyEventsResponse)
+async def get_my_events(db: DbDep, current_user: AuthUserDep) -> MyEventsResponse:
+    """Return events the authenticated user created and events they registered for."""
+    user_id = current_user.id
+
+    def _location_summary(raw: dict[str, Any]) -> str:
+        loc = raw.get("location", {})
+        if raw.get("is_online"):
+            return "Online Event"
+        venue = loc.get("venue_name")
+        city = loc.get("city", "")
+        state = loc.get("state", "")
+        if venue:
+            return f"{venue}, {city}"
+        return f"{city}, {state}".strip(", ")
+
+    async def _build_items(
+        raw_events: list[dict[str, Any]],
+    ) -> list[MyEventItem]:
+        event_ids = [r["id"] for r in raw_events]
+        counts: dict[int, int] = {}
+        if event_ids:
+            pipeline: list[dict[str, Any]] = [
+                {
+                    "$match": {
+                        "event_id": {"$in": event_ids},
+                        "status": {"$ne": "cancelled"},
+                    }
+                },
+                {"$group": {"_id": "$event_id", "count": {"$sum": 1}}},
+            ]
+            async for doc in await db["attendance"].aggregate(pipeline):
+                counts[doc["_id"]] = doc["count"]
+
+        return [
+            MyEventItem(
+                id=r["id"],
+                title=r["title"],
+                start_time=r["start_time"],
+                end_time=r["end_time"],
+                category=r.get("category", "Other"),
+                is_online=r.get("is_online", False),
+                image_url=r.get("image_url"),
+                location_summary=_location_summary(r),
+                price=r.get("price", 0),
+                status=r.get("status"),
+                attending_count=counts.get(r["id"], 0),
+            )
+            for r in raw_events
+        ]
+
+    created_raw = await (
+        db["events"]
+        .find({"organizer_user_id": user_id})
+        .sort("start_time", -1)
+        .to_list(length=50)
+    )
+
+    attendance_records = await (
+        db["attendance"].find({"user_id": user_id}).sort("_id", -1).to_list(length=None)
+    )
+    registered_event_ids: list[int] = []
+    seen: set[int] = set()
+    for rec in attendance_records:
+        eid = rec.get("event_id")
+        if not isinstance(eid, int) or eid in seen:
+            continue
+        seen.add(eid)
+        if rec.get("status") != "cancelled":
+            registered_event_ids.append(eid)
+
+    registered_raw: list[dict[str, Any]] = []
+    if registered_event_ids:
+        id_order = {eid: idx for idx, eid in enumerate(registered_event_ids)}
+        raw_list = await (
+            db["events"]
+            .find({"id": {"$in": registered_event_ids}})
+            .to_list(length=None)
+        )
+        raw_list.sort(key=lambda r: id_order.get(r["id"], 0))
+        registered_raw = raw_list
+
+    return MyEventsResponse(
+        created=await _build_items(created_raw),
+        registered=await _build_items(registered_raw),
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /users/{user_id}
 # ---------------------------------------------------------------------------
 
@@ -451,9 +630,21 @@ async def sync_user_calendar_to_google(
     await _get_user_or_404(db, user_id)
 
     access_token = await get_google_calendar_access_token(request)
-    await _backfill_registered_calendar_entries(db, user_id)
-    entries = await _calendar_entries_for_user(db, user_id)
-    events = await _events_by_id(db, [int(entry["event_id"]) for entry in entries])
+
+    try:
+        await _backfill_registered_calendar_entries(db, user_id)
+        entries = await _calendar_entries_for_user(db, user_id)
+        events = await _events_by_id(db, [int(entry["event_id"]) for entry in entries])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "Database error while preparing calendar sync for user %s", user_id
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not read your calendar data. Please try again.",
+        ) from exc
 
     synced_count = 0
     skipped_count = 0
@@ -467,12 +658,11 @@ async def sync_user_calendar_to_google(
             skipped_count += 1
             continue
 
-        google_event = await create_google_calendar_event(
+        google_event = await _create_google_calendar_event_for_calendar_sync(
+            request,
             access_token,
-            google_calendar_event_payload(
-                event,
-                event_url=_frontend_event_url(request, event.id),
-            ),
+            user_id=user_id,
+            event=event,
         )
         google_event_id = _string_value(google_event.get("id"))
         if google_event_id is None:
@@ -481,20 +671,34 @@ async def sync_user_calendar_to_google(
                 detail="Google Calendar returned an invalid response.",
             )
 
-        await db[USER_CALENDAR_COLLECTION].update_one(
-            {"_id": entry["_id"]},
-            {
-                "$set": {
-                    "google_calendar_event_id": google_event_id,
-                    "google_calendar_event_url": _string_value(
-                        google_event.get("htmlLink")
-                    ),
-                }
-            },
-        )
+        try:
+            await db[USER_CALENDAR_COLLECTION].update_one(
+                {"_id": entry["_id"]},
+                {
+                    "$set": {
+                        "google_calendar_event_id": google_event_id,
+                        "google_calendar_event_url": _string_value(
+                            google_event.get("htmlLink")
+                        ),
+                    }
+                },
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            try:
+                await delete_google_calendar_event(access_token, google_event_id)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to roll back Google Calendar event after calendar sync persistence failure"
+                )
+            raise HTTPException(
+                status_code=502,
+                detail="Could not save Google Calendar sync data. Please try again.",
+            ) from exc
         synced_count += 1
 
-    await _set_google_sync_enabled(db, user_id, True)
+    await _update_google_sync_enabled(db, user_id, True)
     return GoogleCalendarSyncResponse(
         synced_count=synced_count,
         skipped_count=skipped_count,
@@ -548,7 +752,7 @@ async def unsync_user_calendar_from_google(
         )
         unsynced_count += 1
 
-    await _set_google_sync_enabled(db, user_id, False)
+    await _update_google_sync_enabled(db, user_id, False)
     return GoogleCalendarUnsyncResponse(unsynced_count=unsynced_count)
 
 

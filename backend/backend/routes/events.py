@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
@@ -389,15 +390,26 @@ async def _attendance_status_for_user(
 
 async def _create_google_calendar_sync_fields(
     request: Request, event: Event
-) -> dict[str, object]:
+) -> tuple[str, dict[str, object]]:
     access_token = await get_google_calendar_access_token(request)
-    google_event = await create_google_calendar_event(
-        access_token,
-        google_calendar_event_payload(
-            event,
-            event_url=_frontend_event_url(request, event.id),
-        ),
-    )
+    try:
+        google_event = await create_google_calendar_event(
+            access_token,
+            google_calendar_event_payload(
+                event,
+                event_url=_frontend_event_url(request, event.id),
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "Unexpected Google Calendar sync failure for event %s", event.id
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not sync this event to Google Calendar. Please try again.",
+        ) from exc
     google_event_id = _string_value(google_event.get("id"))
     if google_event_id is None:
         raise HTTPException(
@@ -405,7 +417,7 @@ async def _create_google_calendar_sync_fields(
             detail="Google Calendar returned an invalid response.",
         )
 
-    return {
+    return access_token, {
         "google_calendar_event_id": google_event_id,
         "google_calendar_event_url": _string_value(google_event.get("htmlLink")),
     }
@@ -440,8 +452,24 @@ async def _ensure_event_in_app_calendar(
             "added_at": datetime.now(tz=UTC),
         }
         if await _google_sync_enabled(db, user_id):
-            document.update(await _create_google_calendar_sync_fields(request, event))
+            access_token, sync_fields = await _create_google_calendar_sync_fields(
+                request, event
+            )
+            document.update(sync_fields)
             google_synced = True
+            try:
+                await db[USER_CALENDAR_COLLECTION].insert_one(document)
+            except Exception:
+                try:
+                    await delete_google_calendar_event(
+                        access_token, str(sync_fields["google_calendar_event_id"])
+                    )
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Failed to roll back Google Calendar event after local insert failure"
+                    )
+                raise
+            return google_synced
 
         await db[USER_CALENDAR_COLLECTION].insert_one(document)
         return google_synced
@@ -449,11 +477,24 @@ async def _ensure_event_in_app_calendar(
     if _string_value(
         existing.get("google_calendar_event_id")
     ) is None and await _google_sync_enabled(db, user_id):
-        sync_fields = await _create_google_calendar_sync_fields(request, event)
-        await db[USER_CALENDAR_COLLECTION].update_one(
-            {"_id": existing["_id"]},
-            {"$set": sync_fields},
+        access_token, sync_fields = await _create_google_calendar_sync_fields(
+            request, event
         )
+        try:
+            await db[USER_CALENDAR_COLLECTION].update_one(
+                {"_id": existing["_id"]},
+                {"$set": sync_fields},
+            )
+        except Exception:
+            try:
+                await delete_google_calendar_event(
+                    access_token, str(sync_fields["google_calendar_event_id"])
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to roll back Google Calendar event after local update failure"
+                )
+            raise
         return True
 
     return _string_value(existing.get("google_calendar_event_id")) is not None

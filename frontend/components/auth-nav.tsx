@@ -16,6 +16,8 @@ function displayName(
 export function AuthNav() {
   const { user, loading } = useAuth();
   const isAdmin = user?.roles.includes("admin") ?? false;
+  const actionButtonClassName =
+    "rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:border-black hover:text-black";
 
   if (loading) {
     return (
@@ -38,13 +40,13 @@ export function AuthNav() {
         )}
         <Link
           href="/profile"
-          className="hidden text-sm text-gray-700 transition hover:text-black sm:inline"
+          className={`${actionButtonClassName} hidden sm:inline-flex`}
         >
           {displayName(user.first_name, user.last_name, user.name)}
         </Link>
         <a
           href="/logout"
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:border-black hover:text-black"
+          className={actionButtonClassName}
         >
           Sign Out
         </a>

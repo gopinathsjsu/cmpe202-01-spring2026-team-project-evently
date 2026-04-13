@@ -1,3 +1,4 @@
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -6,9 +7,13 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
+from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from backend.app_config import build_frontend_settings
 from backend.routes.auth import router as auth_router
@@ -16,6 +21,9 @@ from backend.routes.contact import router as contact_router
 from backend.routes.events import router as events_router
 from backend.routes.users import UPLOAD_DIR
 from backend.routes.users import router as users_router
+from backend.seed import ensure_required_startup_users
+
+_logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -26,6 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client: AsyncMongoClient[dict[str, Any]] = AsyncMongoClient(url)
     app.state.db_client = client
     app.state.db = client["evently"]
+    await ensure_required_startup_users(app.state.db)
     yield
     await client.close()
 
@@ -35,6 +44,25 @@ def create_app() -> FastAPI:
     app.state.frontend_settings = build_frontend_settings(getenv("FRONTEND_URL"))
     frontend_origin = app.state.frontend_settings.primary_origin or ""
     session_https_only = frontend_origin.startswith("https://")
+
+    # Catch unhandled errors in middleware that sits inside CORSMiddleware, so
+    # even generic 500 responses still include the frontend's CORS headers.
+    @app.middleware("http")
+    async def _unhandled_exception_middleware(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        try:
+            response = await call_next(request)
+        except Exception:
+            _logger.exception(
+                "Unhandled exception on %s %s", request.method, request.url
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"},
+            )
+
+        return response
 
     app.add_middleware(
         CORSMiddleware,
