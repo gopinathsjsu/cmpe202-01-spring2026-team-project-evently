@@ -10,8 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
+from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
+from starlette.responses import Response
 
 from backend.app_config import build_frontend_settings
 from backend.routes.auth import router as auth_router
@@ -43,19 +45,24 @@ def create_app() -> FastAPI:
     frontend_origin = app.state.frontend_settings.primary_origin or ""
     session_https_only = frontend_origin.startswith("https://")
 
-    # Catch-all handler: converts unhandled exceptions into JSON 500 responses
-    # *inside* the ExceptionMiddleware so CORSMiddleware can still add CORS
-    # headers.  Without this, raw exceptions propagate past CORSMiddleware and
-    # the browser blocks the header-less 500, surfacing as "NetworkError".
-    @app.exception_handler(Exception)
-    async def _unhandled_exception_handler(
-        request: Request, exc: Exception
-    ) -> JSONResponse:
-        _logger.exception("Unhandled exception on %s %s", request.method, request.url)
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Internal server error"},
-        )
+    # Catch unhandled errors in middleware that sits inside CORSMiddleware, so
+    # even generic 500 responses still include the frontend's CORS headers.
+    @app.middleware("http")
+    async def _unhandled_exception_middleware(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        try:
+            response = await call_next(request)
+        except Exception:
+            _logger.exception(
+                "Unhandled exception on %s %s", request.method, request.url
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error"},
+            )
+
+        return response
 
     app.add_middleware(
         CORSMiddleware,

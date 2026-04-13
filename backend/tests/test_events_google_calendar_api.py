@@ -167,6 +167,8 @@ class _FakeDb:
 def _make_client(
     db: _FakeDb,
     auth_user: AuthSessionUser | None = None,
+    *,
+    raise_app_exceptions: bool = True,
 ) -> tuple[FastAPI, AsyncClient]:
     app = create_app()
     app.state.db = db
@@ -174,7 +176,7 @@ def _make_client(
     if auth_user is not None:
         app.dependency_overrides[require_authenticated_user] = lambda: auth_user
 
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(app=app, raise_app_exceptions=raise_app_exceptions)
     client = AsyncClient(transport=transport, base_url="http://test")
     return app, client
 
@@ -444,6 +446,53 @@ async def test_sync_saved_calendar_to_google_backfills_existing_registration_fir
 
 
 @pytest.mark.asyncio
+async def test_sync_saved_calendar_to_google_skips_invalid_event_records() -> None:
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["events"].insert_one(
+        {
+            "id": 2,
+            "title": "Broken Event",
+            "organizer_user_id": 1,
+        }
+    )
+    await db["user_calendar_entries"].insert_one(
+        {"user_id": 7, "event_id": 1, "added_at": datetime.now(tz=UTC)}
+    )
+    await db["user_calendar_entries"].insert_one(
+        {"user_id": 7, "event_id": 2, "added_at": datetime.now(tz=UTC)}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    create_google_calendar_event = AsyncMock(return_value={"id": "google-event-1"})
+
+    with (
+        patch.object(
+            users_routes,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            users_routes,
+            "create_google_calendar_event",
+            create_google_calendar_event,
+        ),
+    ):
+        async with client:
+            resp = await client.post("/users/7/calendar/sync/google")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "google_sync_enabled": True,
+        "synced_count": 1,
+        "skipped_count": 1,
+        "status": "enabled",
+    }
+    create_google_calendar_event.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_unsync_google_calendar_removes_synced_events_and_disables_sync() -> None:
     db = _FakeDb()
     await db["users"].insert_one(_user_doc(7))
@@ -601,13 +650,48 @@ async def test_add_event_to_app_calendar_rolls_back_google_event_on_local_insert
         ),
     ):
         async with client:
-            with pytest.raises(RuntimeError, match="db write failed"):
-                await client.post("/events/1/calendar")
+            response = await client.post("/events/1/calendar")
+
+    assert response.status_code == 500
 
     delete_google_calendar_event.assert_awaited_once_with(
         "google-access-token",
         "google-event-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_add_event_to_app_calendar_returns_502_on_unexpected_google_sync_error() -> (
+    None
+):
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["user_calendar_syncs"].insert_one(
+        {"user_id": 7, "google_sync_enabled": True}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+
+    with (
+        patch.object(
+            events_routes,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            events_routes,
+            "create_google_calendar_event",
+            AsyncMock(side_effect=RuntimeError("unexpected boom")),
+        ),
+    ):
+        async with client:
+            response = await client.post("/events/1/calendar")
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": "Could not sync this event to Google Calendar. Please try again."
+    }
 
 
 @pytest.mark.asyncio
@@ -709,3 +793,40 @@ async def test_sync_saved_calendar_to_google_rolls_back_google_event_on_local_up
         "google-access-token",
         "google-event-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_sync_saved_calendar_to_google_returns_502_on_unexpected_google_error() -> (
+    None
+):
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["user_calendar_entries"].insert_one(
+        {"user_id": 7, "event_id": 1, "added_at": datetime.now(tz=UTC)}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+
+    with (
+        patch.object(
+            users_routes,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            users_routes,
+            "create_google_calendar_event",
+            AsyncMock(side_effect=RuntimeError("unexpected boom")),
+        ),
+    ):
+        async with client:
+            response = await client.post(
+                "/users/7/calendar/sync/google",
+                headers={"Origin": "http://localhost:3000"},
+            )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": "Could not sync your calendar to Google Calendar. Please try again."
+    }

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ValidationError
 from pymongo.asynchronous.database import AsyncDatabase
 from starlette.requests import Request
 
@@ -317,6 +317,23 @@ async def _set_google_sync_enabled(
     )
 
 
+async def _update_google_sync_enabled(
+    db: AsyncDatabase[dict[str, Any]], user_id: int, enabled: bool
+) -> None:
+    try:
+        await _set_google_sync_enabled(db, user_id, enabled)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "Failed to update Google Calendar sync settings for user %s", user_id
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not update your Google Calendar sync settings. Please try again.",
+        ) from exc
+
+
 async def _calendar_entries_for_user(
     db: AsyncDatabase[dict[str, Any]], user_id: int
 ) -> list[dict[str, Any]]:
@@ -336,9 +353,46 @@ async def _events_by_id(
         return events
 
     async for raw_event in db["events"].find({"id": {"$in": event_ids}}):
-        event = Event(**raw_event)
+        try:
+            event = Event(**raw_event)
+        except ValidationError:
+            logging.getLogger(__name__).warning(
+                "Skipping invalid event %r while building calendar data",
+                raw_event.get("id"),
+                exc_info=True,
+            )
+            continue
         events[event.id] = event
     return events
+
+
+async def _create_google_calendar_event_for_calendar_sync(
+    request: Request,
+    access_token: str,
+    *,
+    user_id: int,
+    event: Event,
+) -> dict[str, object]:
+    try:
+        return await create_google_calendar_event(
+            access_token,
+            google_calendar_event_payload(
+                event,
+                event_url=_frontend_event_url(request, event.id),
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "Unexpected Google Calendar sync failure for user %s event %s",
+            user_id,
+            event.id,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not sync your calendar to Google Calendar. Please try again.",
+        ) from exc
 
 
 async def _backfill_registered_calendar_entries(
@@ -604,12 +658,11 @@ async def sync_user_calendar_to_google(
             skipped_count += 1
             continue
 
-        google_event = await create_google_calendar_event(
+        google_event = await _create_google_calendar_event_for_calendar_sync(
+            request,
             access_token,
-            google_calendar_event_payload(
-                event,
-                event_url=_frontend_event_url(request, event.id),
-            ),
+            user_id=user_id,
+            event=event,
         )
         google_event_id = _string_value(google_event.get("id"))
         if google_event_id is None:
@@ -632,7 +685,7 @@ async def sync_user_calendar_to_google(
             )
         except HTTPException:
             raise
-        except Exception:
+        except Exception as exc:
             try:
                 await delete_google_calendar_event(access_token, google_event_id)
             except Exception:
@@ -642,10 +695,10 @@ async def sync_user_calendar_to_google(
             raise HTTPException(
                 status_code=502,
                 detail="Could not save Google Calendar sync data. Please try again.",
-            )
+            ) from exc
         synced_count += 1
 
-    await _set_google_sync_enabled(db, user_id, True)
+    await _update_google_sync_enabled(db, user_id, True)
     return GoogleCalendarSyncResponse(
         synced_count=synced_count,
         skipped_count=skipped_count,
@@ -699,7 +752,7 @@ async def unsync_user_calendar_from_google(
         )
         unsynced_count += 1
 
-    await _set_google_sync_enabled(db, user_id, False)
+    await _update_google_sync_enabled(db, user_id, False)
     return GoogleCalendarUnsyncResponse(unsynced_count=unsynced_count)
 
 

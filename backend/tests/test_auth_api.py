@@ -1,4 +1,5 @@
 from collections.abc import Iterator, Mapping
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
@@ -376,6 +377,39 @@ async def test_google_calendar_access_token_refreshes_when_session_token_is_expi
         oauth_token_session_id="token-session-1"
     )
     assert stored_token_resp.json() == {"token": refreshed_token}
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_access_token_accepts_naive_token_timestamp_from_mongo() -> (
+    None
+):
+    app, client = _make_client(base_url="https://test")
+    valid_token = {
+        "access_token": "google-access-token",
+        "refresh_token": "refresh-token",
+        "expires_at": 9999999999,
+        "scope": auth_routes.GOOGLE_OAUTH_SCOPE,
+    }
+
+    async with client:
+        await client.post(
+            "/_test/oauth-token",
+            json={"session_id": "token-session-1", "token": valid_token},
+        )
+        await client.post(
+            "/_test/session",
+            json=_session_state(oauth_token_session_id="token-session-1"),
+        )
+        stored = await app.state.db[auth_routes._OAUTH_TOKEN_COLLECTION].find_one(
+            {"_id": "token-session-1"}
+        )
+        assert stored is not None
+        stored["updated_at"] = datetime.now(tz=UTC).replace(tzinfo=None)
+
+        token_resp = await client.get("/_test/google-calendar-access-token")
+
+    assert token_resp.status_code == 200
+    assert token_resp.json() == {"access_token": "google-access-token"}
 
 
 @pytest.mark.asyncio

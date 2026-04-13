@@ -202,6 +202,14 @@ def _bool_value(value: object) -> bool | None:
     return None
 
 
+def _utc_datetime_value(value: object) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _normalized_email(value: str) -> str:
     return value.strip().strip("\"'").lower()
 
@@ -313,7 +321,14 @@ async def _refresh_oauth_token(token: Mapping[str, object]) -> dict[str, object]
             detail="Could not refresh Google Calendar access.",
         )
 
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not refresh Google Calendar access.",
+        ) from exc
+
     if not isinstance(payload, Mapping):
         raise HTTPException(
             status_code=502,
@@ -371,9 +386,9 @@ async def _load_oauth_token(
     stored = await db[_OAUTH_TOKEN_COLLECTION].find_one({"_id": session_id})
     if not isinstance(stored, Mapping):
         return None
-    updated_at = stored.get("updated_at")
+    updated_at = _utc_datetime_value(stored.get("updated_at"))
     if (
-        isinstance(updated_at, datetime)
+        updated_at is not None
         and updated_at < datetime.now(tz=UTC) - _OAUTH_TOKEN_MAX_AGE
     ):
         await _clear_oauth_token(db, request)

@@ -392,13 +392,24 @@ async def _create_google_calendar_sync_fields(
     request: Request, event: Event
 ) -> tuple[str, dict[str, object]]:
     access_token = await get_google_calendar_access_token(request)
-    google_event = await create_google_calendar_event(
-        access_token,
-        google_calendar_event_payload(
-            event,
-            event_url=_frontend_event_url(request, event.id),
-        ),
-    )
+    try:
+        google_event = await create_google_calendar_event(
+            access_token,
+            google_calendar_event_payload(
+                event,
+                event_url=_frontend_event_url(request, event.id),
+            ),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.getLogger(__name__).exception(
+            "Unexpected Google Calendar sync failure for event %s", event.id
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Could not sync this event to Google Calendar. Please try again.",
+        ) from exc
     google_event_id = _string_value(google_event.get("id"))
     if google_event_id is None:
         raise HTTPException(
