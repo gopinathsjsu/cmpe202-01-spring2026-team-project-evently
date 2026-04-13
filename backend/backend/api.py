@@ -3,7 +3,6 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from os import getenv
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +15,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from backend.app_config import build_frontend_settings
+from backend.db import get_mongo_client
 from backend.routes.auth import router as auth_router
 from backend.routes.contact import router as contact_router
 from backend.routes.events import router as events_router
@@ -24,19 +24,22 @@ from backend.routes.users import router as users_router
 from backend.seed import ensure_required_startup_users
 
 _logger = logging.getLogger(__name__)
+from backend.services.notifications.arq import create_arq_pool
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    url = os.getenv("DATABASE_URL", "")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable is not set")
-    client: AsyncMongoClient[dict[str, Any]] = AsyncMongoClient(url)
-    app.state.db_client = client
-    app.state.db = client["evently"]
+    db_client = get_mongo_client()
+    app.state.db_client = db_client
+    app.state.db = db_client["evently"]
     await ensure_required_startup_users(app.state.db)
+
+    arq = await create_arq_pool()
+    app.state.arq = arq
+
     yield
-    await client.close()
+    await db_client.close()
+    await arq.close()
 
 
 def create_app() -> FastAPI:
