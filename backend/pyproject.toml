@@ -23,6 +23,8 @@ dependencies = [
 [project.scripts]
 backend = "backend.main:cli"
 seed = "backend.seed:cli"
+notif-worker = "backend.services.notifications.worker:run"
+
 [project.urls]
 Repository = "https://github.com/gopinathsjsu/cmpe202-01-spring2026-team-project-evently"
 
