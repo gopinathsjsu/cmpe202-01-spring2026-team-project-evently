@@ -1,8 +1,12 @@
 import logging
 import re
 import uuid
+from base64 import urlsafe_b64encode
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
+from hashlib import sha256
+from json import dumps, loads
 from os import getenv
 from time import time
 from typing import Annotated, Any, Protocol, TypeGuard, cast
@@ -10,6 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from authlib.integrations.starlette_client import OAuth, OAuthError
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from pymongo import ReturnDocument
@@ -38,6 +43,7 @@ _EVENTLY_USER_SESSION_KEY = "evently_user_id"
 _POST_AUTH_REDIRECT_KEY = "post_auth_redirect"
 _PENDING_SIGNUP_SESSION_KEY = "pending_signup"
 _OAUTH_TOKEN_COLLECTION = "oauth_tokens"
+_OAUTH_TOKEN_MAX_AGE = timedelta(days=30)
 
 DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 
@@ -174,6 +180,14 @@ def _session_token_store_id(request: Request) -> str:
     session_id = uuid.uuid4().hex
     request.session[_OAUTH_TOKEN_SESSION_ID_KEY] = session_id
     return session_id
+
+
+@lru_cache(maxsize=1)
+def _oauth_token_cipher() -> Fernet:
+    if not (session_secret_key := getenv("SESSION_SECRET_KEY")):
+        raise RuntimeError("SESSION_SECRET_KEY environment variable is not set")
+    digest = sha256(session_secret_key.encode("utf-8")).digest()
+    return Fernet(urlsafe_b64encode(digest))
 
 
 def _bool_value(value: object) -> bool | None:
@@ -329,9 +343,21 @@ async def _store_oauth_token(
         return
 
     session_id = _session_token_store_id(request)
+    encrypted_token = (
+        _oauth_token_cipher()
+        .encrypt(dumps(dict(serialized)).encode("utf-8"))
+        .decode("utf-8")
+    )
+    now = datetime.now(tz=UTC)
     await db[_OAUTH_TOKEN_COLLECTION].update_one(
         {"_id": session_id},
-        {"$set": {"token": dict(serialized)}},
+        {
+            "$set": {
+                "encrypted_token": encrypted_token,
+                "updated_at": now,
+                "expires_at": serialized.get("expires_at"),
+            }
+        },
         upsert=True,
     )
 
@@ -345,7 +371,30 @@ async def _load_oauth_token(
     stored = await db[_OAUTH_TOKEN_COLLECTION].find_one({"_id": session_id})
     if not isinstance(stored, Mapping):
         return None
-    return _stored_oauth_token(stored.get("token"))
+    updated_at = stored.get("updated_at")
+    if (
+        isinstance(updated_at, datetime)
+        and updated_at < datetime.now(tz=UTC) - _OAUTH_TOKEN_MAX_AGE
+    ):
+        await _clear_oauth_token(db, request)
+        return None
+
+    encrypted_token = stored.get("encrypted_token")
+    if not isinstance(encrypted_token, str) or not encrypted_token.strip():
+        await _clear_oauth_token(db, request)
+        return None
+
+    try:
+        decrypted = _oauth_token_cipher().decrypt(encrypted_token.encode("utf-8"))
+        payload = loads(decrypted.decode("utf-8"))
+    except (InvalidToken, UnicodeDecodeError, TypeError, ValueError):
+        await _clear_oauth_token(db, request)
+        return None
+
+    if not isinstance(payload, Mapping):
+        await _clear_oauth_token(db, request)
+        return None
+    return _stored_oauth_token(payload)
 
 
 async def _clear_oauth_token(

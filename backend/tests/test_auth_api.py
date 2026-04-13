@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
@@ -180,15 +180,19 @@ def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
 
     @app.get("/_test/oauth-token")
     async def read_oauth_token(request: Request) -> dict[str, object | None]:
+        return {
+            "token": await auth_routes._load_oauth_token(cast(Any, fake_db), request)
+        }
+
+    @app.get("/_test/oauth-token-raw")
+    async def read_oauth_token_raw(request: Request) -> dict[str, object | None]:
         session_id = request.session.get(auth_routes._OAUTH_TOKEN_SESSION_ID_KEY)
         if not isinstance(session_id, str):
-            return {"token": None}
+            return {"stored": None}
         stored = await fake_db[auth_routes._OAUTH_TOKEN_COLLECTION].find_one(
             {"_id": session_id}
         )
-        if stored is None:
-            return {"token": None}
-        return {"token": stored.get("token")}
+        return {"stored": stored}
 
     @app.post("/_test/oauth-token")
     async def write_oauth_token(
@@ -204,10 +208,10 @@ def _make_client(base_url: str = "http://test") -> tuple[FastAPI, AsyncClient]:
                 {"_id": session_id}
             )
             return {"token": None}
-        await fake_db[auth_routes._OAUTH_TOKEN_COLLECTION].update_one(
-            {"_id": session_id},
-            {"$set": {"token": token}},
-            upsert=True,
+        await auth_routes._store_oauth_token(
+            cast(Any, fake_db),
+            request,
+            cast(Mapping[str, object], token),
         )
         return {"token": token}
 
@@ -303,6 +307,7 @@ async def test_callback_stores_pending_signup_session_for_new_google_user() -> N
             resp = await client.get("/auth/callback")
             session_resp = await client.get("/_test/session")
             token_store_resp = await client.get("/_test/oauth-token")
+            token_store_raw_resp = await client.get("/_test/oauth-token-raw")
 
     assert resp.status_code == 307
     assert resp.headers["location"] == "/complete-signup"
@@ -313,6 +318,7 @@ async def test_callback_stores_pending_signup_session_for_new_google_user() -> N
         pending_signup=True,
     )
     stored_token = token_store_resp.json()["token"]
+    raw_stored = token_store_raw_resp.json()["stored"]
     assert isinstance(session_data[auth_routes._OAUTH_TOKEN_SESSION_ID_KEY], str)
     assert stored_token == {
         "access_token": "google-access-token",
@@ -322,6 +328,9 @@ async def test_callback_stores_pending_signup_session_for_new_google_user() -> N
         "expires_at": stored_token["expires_at"],
     }
     assert isinstance(stored_token["expires_at"], int)
+    assert isinstance(raw_stored, dict)
+    assert isinstance(raw_stored.get("encrypted_token"), str)
+    assert "google-refresh-token" not in raw_stored["encrypted_token"]
 
 
 @pytest.mark.asyncio

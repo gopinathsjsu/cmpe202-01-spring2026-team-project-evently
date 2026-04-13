@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import UTC, datetime
@@ -605,17 +606,26 @@ async def sync_user_calendar_to_google(
                 detail="Google Calendar returned an invalid response.",
             )
 
-        await db[USER_CALENDAR_COLLECTION].update_one(
-            {"_id": entry["_id"]},
-            {
-                "$set": {
-                    "google_calendar_event_id": google_event_id,
-                    "google_calendar_event_url": _string_value(
-                        google_event.get("htmlLink")
-                    ),
-                }
-            },
-        )
+        try:
+            await db[USER_CALENDAR_COLLECTION].update_one(
+                {"_id": entry["_id"]},
+                {
+                    "$set": {
+                        "google_calendar_event_id": google_event_id,
+                        "google_calendar_event_url": _string_value(
+                            google_event.get("htmlLink")
+                        ),
+                    }
+                },
+            )
+        except Exception:
+            try:
+                await delete_google_calendar_event(access_token, google_event_id)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Failed to roll back Google Calendar event after calendar sync persistence failure"
+                )
+            raise
         synced_count += 1
 
     await _set_google_sync_enabled(db, user_id, True)

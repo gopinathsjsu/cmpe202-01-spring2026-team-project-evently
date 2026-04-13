@@ -565,6 +565,52 @@ async def test_add_event_to_app_calendar_syncs_when_google_sync_enabled() -> Non
 
 
 @pytest.mark.asyncio
+async def test_add_event_to_app_calendar_rolls_back_google_event_on_local_insert_failure() -> (
+    None
+):
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["user_calendar_syncs"].insert_one(
+        {"user_id": 7, "google_sync_enabled": True}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    delete_google_calendar_event = AsyncMock(return_value=None)
+
+    with (
+        patch.object(
+            events_routes,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            events_routes,
+            "create_google_calendar_event",
+            AsyncMock(return_value={"id": "google-event-1"}),
+        ),
+        patch.object(
+            events_routes,
+            "delete_google_calendar_event",
+            delete_google_calendar_event,
+        ),
+        patch.object(
+            db["user_calendar_entries"],
+            "insert_one",
+            AsyncMock(side_effect=RuntimeError("db write failed")),
+        ),
+    ):
+        async with client:
+            with pytest.raises(RuntimeError, match="db write failed"):
+                await client.post("/events/1/calendar")
+
+    delete_google_calendar_event.assert_awaited_once_with(
+        "google-access-token",
+        "google-event-1",
+    )
+
+
+@pytest.mark.asyncio
 async def test_remove_event_from_app_calendar_removes_google_event_when_synced() -> (
     None
 ):
@@ -608,6 +654,57 @@ async def test_remove_event_from_app_calendar_removes_google_event_when_synced()
         await db["user_calendar_entries"].find_one({"user_id": 7, "event_id": 1})
         is None
     )
+    delete_google_calendar_event.assert_awaited_once_with(
+        "google-access-token",
+        "google-event-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_saved_calendar_to_google_rolls_back_google_event_on_local_update_failure() -> (
+    None
+):
+    db = _FakeDb()
+    await db["users"].insert_one(_user_doc(7))
+    await db["events"].insert_one(_event_doc())
+    await db["user_calendar_entries"].insert_one(
+        {"user_id": 7, "event_id": 1, "added_at": datetime.now(tz=UTC)}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    delete_google_calendar_event = AsyncMock(return_value=None)
+
+    with (
+        patch.object(
+            users_routes,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            users_routes,
+            "create_google_calendar_event",
+            AsyncMock(
+                return_value={
+                    "id": "google-event-1",
+                    "htmlLink": "https://calendar.google.com/calendar/event?eid=1",
+                }
+            ),
+        ),
+        patch.object(
+            users_routes,
+            "delete_google_calendar_event",
+            delete_google_calendar_event,
+        ),
+        patch.object(
+            db["user_calendar_entries"],
+            "update_one",
+            AsyncMock(side_effect=RuntimeError("db update failed")),
+        ),
+    ):
+        async with client:
+            with pytest.raises(RuntimeError, match="db update failed"):
+                await client.post("/users/7/calendar/sync/google")
+
     delete_google_calendar_event.assert_awaited_once_with(
         "google-access-token",
         "google-event-1",
