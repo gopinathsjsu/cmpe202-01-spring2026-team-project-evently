@@ -8,7 +8,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pymongo.asynchronous.mongo_client import AsyncMongoClient
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
@@ -22,10 +21,10 @@ from backend.routes.events import router as events_router
 from backend.routes.users import UPLOAD_DIR
 from backend.routes.users import router as users_router
 from backend.seed import ensure_required_startup_users
-
-_logger = logging.getLogger(__name__)
 from backend.services.notifications.arq import create_arq_pool
 from backend.services.notifications.email import create_email_notification_service
+
+_logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
