@@ -37,10 +37,11 @@ The backend requires the following environment variables to be set:
 > [!TIP]
 > See the available `just` recipes by running `just`
 
-1. Run `just db` to start the database
+1. Run `just db` to start MongoDB and Redis
 2. Run `uv run backend` to start the backend
+3. Run `uv run notif-worker` in another terminal to start the notification worker
 
-Alternatively, you can run `just dev`
+Alternatively, you can run `just dev` to start MongoDB, Redis, the backend, and the notification worker together.
 
 ## CI
 

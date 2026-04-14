@@ -18,27 +18,54 @@ check-env:
         exit 1; \
     fi
 
-# Start MongoDB, wait for it to be ready, and seed sample data
-db: check-env _stop-stack-db
-    docker compose up -d mongodb
-    @echo "Waiting for MongoDB to accept connections..."
-    @until docker compose exec mongodb mongosh --quiet \
-        -u "${DB_USERNAME}" -p "${DB_PASSWORD}" \
-        --eval "db.runCommand({ ping: 1 })" > /dev/null 2>&1; do \
-        sleep 1; \
-    done
-    @echo "MongoDB is ready. Seeding data..."
+# Start MongoDB and Redis, wait for them to be ready, and seed sample data
+db: _services
+    @echo "MongoDB and Redis are ready. Seeding data..."
     uv run python -m backend.seed --force
 
-# Start MongoDB (with seed) then run the backend
+# Start MongoDB/Redis (with seed), then run the backend and notification worker
 dev: db
-    @echo "Starting backend..."
-    uv run backend
+    #!/usr/bin/env bash
+    set -euo pipefail
 
-# Stop MongoDB
+    pids=()
+
+    cleanup() {
+        trap - EXIT INT TERM
+        if ((${#pids[@]})); then
+            kill "${pids[@]}" 2>/dev/null || true
+            wait "${pids[@]}" 2>/dev/null || true
+        fi
+    }
+
+    trap cleanup EXIT
+    trap 'cleanup; exit 130' INT
+    trap 'cleanup; exit 143' TERM
+
+    echo "Starting notification worker..."
+    uv run notif-worker &
+    pids+=("$!")
+
+    echo "Starting backend..."
+    uv run backend &
+    pids+=("$!")
+
+    set +e
+    wait -n "${pids[@]}"
+    status=$?
+    set -e
+
+    exit "$status"
+
+# Start MongoDB/Redis, then run only the notification worker
+worker: _services
+    @echo "Starting notification worker..."
+    uv run notif-worker
+
+# Stop MongoDB and Redis
 db-stop:
     docker compose down
-    @docker compose -f ../docker-compose.yml stop mongodb 2>/dev/null || true
+    @docker compose -f ../docker-compose.yml stop mongodb redis 2>/dev/null || true
 
 # View MongoDB logs
 db-logs:
@@ -54,5 +81,17 @@ seed: check-env
 # ── Helpers ────────────────────────────────────────────────────────────
 
 [private]
+_services: check-env _stop-stack-db
+    docker compose up -d mongodb redis
+    @echo "Waiting for MongoDB to accept connections..."
+    @until docker compose exec mongodb mongosh --quiet \
+        -u "${DB_USERNAME}" -p "${DB_PASSWORD}" \
+        --eval "db.runCommand({ ping: 1 })" > /dev/null 2>&1; do \
+        sleep 1; \
+    done
+    @echo "Waiting for Redis to accept connections..."
+    @until docker compose exec redis redis-cli ping > /dev/null 2>&1; do \
+        sleep 1; \
+    done
 _stop-stack-db:
-    @docker compose -f ../docker-compose.yml stop mongodb 2>/dev/null || true
+    @docker compose -f ../docker-compose.yml stop mongodb redis 2>/dev/null || true

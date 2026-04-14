@@ -39,7 +39,7 @@ Note: Any root-level `.env` / `.env.example` file (if present) is not used by th
 just up          # or: docker compose up --build
 ```
 
-This starts MongoDB, Redis, the FastAPI backend (with sample data), and the Next.js frontend:
+This starts MongoDB, Redis, the FastAPI backend (with sample data), the notification worker, and the Next.js frontend:
 
 | Service  | URL                        |
 |----------|----------------------------|
@@ -64,7 +64,7 @@ just reset       # stop and wipe the database volume
 For development with hot reloading, run services outside Docker. Additional prerequisites: [`uv`](https://docs.astral.sh/uv/), [`pnpm`](https://pnpm.io/installation), and [`just`](https://github.com/casey/just#packages).
 
 ```bash
-# Terminal 1 — start MongoDB + seed + backend (from project root)
+# Terminal 1 — start MongoDB + Redis + seed + backend + notification worker (from project root)
 just backend
 
 # Terminal 2 — start the frontend (from project root)
