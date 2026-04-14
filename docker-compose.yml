@@ -21,6 +21,21 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:8.6.2
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    environment:
+      - REDIS_ARGS=--appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: ./backend
     ports:
@@ -29,8 +44,11 @@ services:
       - ./backend/.env
     environment:
       MONGODB_HOST: mongodb
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       mongodb:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:
@@ -45,3 +63,4 @@ services:
 
 volumes:
   mongodb_data:
+  redis_data:
