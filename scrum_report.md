@@ -79,3 +79,14 @@
 ## 4/1 - 4/6
 
 - spring break
+
+## 4/6 - 4/13
+
+- calendar page
+- google calendar integration
+- general bug/security fixes
+- fix profile page visibility
+- google maps
+- update profile page functionality
+- signin/singup functionality
+- create account page
