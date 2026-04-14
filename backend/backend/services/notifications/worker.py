@@ -13,7 +13,8 @@ class Context(TypedDict):
 
 
 async def send_event_reminder(ctx: Context, event_id: str) -> None:
-    raise NotImplementedError("send_event_reminder is not implemented yet")
+    # TODO: implement this
+    print(f"sending event reminder for event id {event_id}")
 
 
 class WorkerSettings:
