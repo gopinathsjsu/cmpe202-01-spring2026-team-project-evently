@@ -4,6 +4,8 @@ from fastapi import Request
 
 from backend.models.event import Event
 
+REMINDER_LEAD_TIME_MINUTES = 60
+
 
 class EmailNotificationService:
     def __init__(self, sendgrid_api_key: str) -> None:

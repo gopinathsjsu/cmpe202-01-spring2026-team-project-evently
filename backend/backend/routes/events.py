@@ -33,6 +33,7 @@ from backend.services.calendar_sync import (
 )
 from backend.services.notifications.arq import get_arq
 from backend.services.notifications.email import (
+    REMINDER_LEAD_TIME_MINUTES,
     EmailNotificationService,
     get_email_notif_service,
 )
@@ -1023,6 +1024,14 @@ async def create_event(
     )
 
     await db["events"].insert_one({**event.model_dump(), "registered_count": 0})
+
+    await arq.enqueue_job(
+        "send_event_reminder",
+        event_id=event.id,
+        _defer_until=event.start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
+        _job_id=f"event_reminder_{event.id}",
+    )
+    await email_notif.send_confirmation(current_user.email, event)
 
     return EventDetail.from_event(event, attending_count=0, favorites_count=0)
 
