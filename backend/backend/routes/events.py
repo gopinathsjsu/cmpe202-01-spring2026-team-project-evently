@@ -194,6 +194,44 @@ class PendingEventListItem(BaseModel):
         )
 
 
+class EventAttendeeItem(BaseModel):
+    user_id: int
+    first_name: str
+    last_name: str
+    email: str
+    profile_photo_url: str | None
+    status: Literal["going", "checked_in"]
+    checked_in_at: datetime | None
+
+
+class EventAttendeesResponse(BaseModel):
+    event_id: int
+    event_title: str
+    total_capacity: int
+    going_count: int
+    checked_in_count: int
+    attendees: list[EventAttendeeItem]
+
+
+class CheckInResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["checked_in"] = "checked_in"
+    checked_in_at: datetime
+
+
+class UndoCheckInResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["going"] = "going"
+
+
+class RemoveAttendeeResponse(BaseModel):
+    event_id: int
+    user_id: int
+    status: Literal["cancelled"] = "cancelled"
+
+
 # ---------------------------------------------------------------------------
 # Request schemas
 # ---------------------------------------------------------------------------
@@ -335,6 +373,13 @@ def _resolve_date_preset(preset: str) -> tuple[datetime, datetime]:
 def _require_admin(current_user: AuthSessionUser) -> None:
     if "admin" not in current_user.roles:
         raise HTTPException(status_code=403, detail="Administrator access required")
+
+
+def _require_organizer_or_admin(current_user: AuthSessionUser, event: Event) -> None:
+    if "admin" not in current_user.roles and current_user.id != event.organizer_user_id:
+        raise HTTPException(
+            status_code=403, detail="Organizer or administrator access required"
+        )
 
 
 def _public_event_visibility_filter(event_id: int) -> dict[str, Any]:
@@ -979,6 +1024,195 @@ async def cancel_attendance(
         user_id=current_user.id,
         google_synced=google_synced,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /events/{event_id}/attendees  — List all attendees (organizer/admin)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{event_id}/attendees", response_model=EventAttendeesResponse)
+async def get_event_attendees(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> EventAttendeesResponse:
+    """Return all attendees for an event. Restricted to the organizer or an admin."""
+    raw_event = await db["events"].find_one({"id": event_id})
+    if raw_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw_event)
+    _require_organizer_or_admin(current_user, event)
+
+    attendance_records = await (
+        db["attendance"]
+        .find({"event_id": event_id, "status": {"$ne": AttendanceStatus.Cancelled.value}})
+        .sort("_id", ASCENDING)
+        .to_list(length=None)
+    )
+
+    # Deduplicate: keep latest record per user (last write wins with ASCENDING sort)
+    latest_by_user: dict[int, dict[str, Any]] = {}
+    for record in attendance_records:
+        latest_by_user[record["user_id"]] = record
+
+    user_ids = list(latest_by_user.keys())
+    users_by_id: dict[int, dict[str, Any]] = {}
+    if user_ids:
+        async for raw_user in db["users"].find({"id": {"$in": user_ids}}):
+            users_by_id[raw_user["id"]] = raw_user
+
+    attendees: list[EventAttendeeItem] = []
+    for uid, record in latest_by_user.items():
+        user_raw = users_by_id.get(uid)
+        if user_raw is None:
+            continue
+        raw_checked_in_at = record.get("checked_in_at")
+        attendees.append(
+            EventAttendeeItem(
+                user_id=uid,
+                first_name=user_raw.get("first_name", ""),
+                last_name=user_raw.get("last_name", ""),
+                email=user_raw.get("email", ""),
+                profile_photo_url=user_raw.get("profile_photo_url"),
+                status=record["status"],
+                checked_in_at=raw_checked_in_at
+                if isinstance(raw_checked_in_at, datetime)
+                else None,
+            )
+        )
+
+    attendees.sort(key=lambda a: (a.last_name.lower(), a.first_name.lower()))
+
+    going_count = sum(
+        1 for a in attendees if a.status == AttendanceStatus.Going.value
+    )
+    checked_in_count = sum(
+        1 for a in attendees if a.status == AttendanceStatus.CheckedIn.value
+    )
+
+    return EventAttendeesResponse(
+        event_id=event_id,
+        event_title=event.title,
+        total_capacity=event.total_capacity,
+        going_count=going_count,
+        checked_in_count=checked_in_count,
+        attendees=attendees,
+    )
+
+
+# ---------------------------------------------------------------------------
+# POST /events/{event_id}/attendees/{user_id}/check-in  — Check in attendee
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{event_id}/attendees/{user_id}/check-in", response_model=CheckInResponse
+)
+async def check_in_attendee(
+    db: DbDep, event_id: int, user_id: int, current_user: AuthUserDep
+) -> CheckInResponse:
+    """Check in an attendee for an event. Restricted to the organizer or an admin."""
+    raw_event = await db["events"].find_one({"id": event_id})
+    if raw_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw_event)
+    _require_organizer_or_admin(current_user, event)
+
+    existing = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": user_id, "status": {"$ne": AttendanceStatus.Cancelled.value}},
+        sort=[("_id", DESCENDING)],
+    )
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Attendee not found")
+
+    if existing["status"] == AttendanceStatus.CheckedIn.value:
+        raise HTTPException(status_code=409, detail="Attendee is already checked in")
+
+    checked_in_at = datetime.now(tz=UTC)
+    await db["attendance"].update_one(
+        {"_id": existing["_id"]},
+        {
+            "$set": {
+                "status": AttendanceStatus.CheckedIn.value,
+                "checked_in_at": checked_in_at,
+            }
+        },
+    )
+
+    return CheckInResponse(event_id=event_id, user_id=user_id, checked_in_at=checked_in_at)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /events/{event_id}/attendees/{user_id}/check-in  — Undo check-in
+# ---------------------------------------------------------------------------
+
+
+@router.delete(
+    "/{event_id}/attendees/{user_id}/check-in", response_model=UndoCheckInResponse
+)
+async def undo_check_in_attendee(
+    db: DbDep, event_id: int, user_id: int, current_user: AuthUserDep
+) -> UndoCheckInResponse:
+    """Undo a check-in for an attendee. Restricted to the organizer or an admin."""
+    raw_event = await db["events"].find_one({"id": event_id})
+    if raw_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw_event)
+    _require_organizer_or_admin(current_user, event)
+
+    existing = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": user_id},
+        sort=[("_id", DESCENDING)],
+    )
+    if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
+        raise HTTPException(status_code=404, detail="Attendee not found")
+
+    if existing["status"] == AttendanceStatus.Going.value:
+        raise HTTPException(status_code=409, detail="Attendee is not checked in")
+
+    await db["attendance"].update_one(
+        {"_id": existing["_id"]},
+        {"$set": {"status": AttendanceStatus.Going.value, "checked_in_at": None}},
+    )
+
+    return UndoCheckInResponse(event_id=event_id, user_id=user_id)
+
+
+# ---------------------------------------------------------------------------
+# DELETE /events/{event_id}/attendees/{user_id}  — Remove attendee
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/{event_id}/attendees/{user_id}", response_model=RemoveAttendeeResponse)
+async def remove_attendee(
+    db: DbDep, event_id: int, user_id: int, current_user: AuthUserDep
+) -> RemoveAttendeeResponse:
+    """Remove an attendee from an event. Restricted to the organizer or an admin."""
+    raw_event = await db["events"].find_one({"id": event_id})
+    if raw_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw_event)
+    _require_organizer_or_admin(current_user, event)
+
+    existing = await db["attendance"].find_one(
+        {"event_id": event_id, "user_id": user_id},
+        sort=[("_id", DESCENDING)],
+    )
+    if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
+        raise HTTPException(status_code=404, detail="Attendee not found")
+
+    await db["attendance"].update_one(
+        {"_id": existing["_id"]},
+        {"$set": {"status": AttendanceStatus.Cancelled.value, "checked_in_at": None}},
+    )
+
+    await _ensure_registered_count(db, event_id)
+    await _release_event_slot(db, event_id)
+
+    return RemoveAttendeeResponse(event_id=event_id, user_id=user_id)
 
 
 # ---------------------------------------------------------------------------

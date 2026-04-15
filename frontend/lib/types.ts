@@ -135,3 +135,43 @@ export interface EventCreatePayload {
   schedule: EventScheduleEntry[];
   location: Location;
 }
+
+export type AttendeeStatus = "going" | "checked_in";
+
+export interface EventAttendeeItem {
+  user_id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  profile_photo_url: string | null;
+  status: AttendeeStatus;
+  checked_in_at: string | null;
+}
+
+export interface EventAttendeesResponse {
+  event_id: number;
+  event_title: string;
+  total_capacity: number;
+  going_count: number;
+  checked_in_count: number;
+  attendees: EventAttendeeItem[];
+}
+
+export interface CheckInResponse {
+  event_id: number;
+  user_id: number;
+  status: "checked_in";
+  checked_in_at: string;
+}
+
+export interface UndoCheckInResponse {
+  event_id: number;
+  user_id: number;
+  status: "going";
+}
+
+export interface RemoveAttendeeResponse {
+  event_id: number;
+  user_id: number;
+  status: "cancelled";
+}
