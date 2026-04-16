@@ -51,8 +51,17 @@ dev: db
     pids+=("$!")
 
     set +e
-    wait -n "${pids[@]}"
-    status=$?
+    status=0
+    while :; do
+        for pid in "${pids[@]}"; do
+            if ! kill -0 "$pid" 2>/dev/null; then
+                wait "$pid"
+                status=$?
+                break 2
+            fi
+        done
+        sleep 1
+    done
     set -e
 
     exit "$status"
