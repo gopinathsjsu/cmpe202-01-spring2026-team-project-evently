@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from arq import ArqRedis, create_pool
@@ -30,13 +30,12 @@ class ArqClient:
         self, db: AsyncDatabase[dict[str, Any]]
     ) -> None:
         """Schedule background tasks for all upcoming event reminders."""
-        async for event_dict in db["events"].find(
-            {"start_time": {"$gt": datetime.utcnow()}}
-        ):
-            event_id = event_dict["_id"]
+        now = datetime.now(UTC).replace(tzinfo=None)
+        async for event_dict in db["events"].find({"start_time": {"$gt": now}}):
+            event_id = event_dict["id"]
             start_time = event_dict["start_time"]
             reminder_time = start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES)
-            if reminder_time > datetime.utcnow():
+            if reminder_time > now:
                 await self.schedule_event_reminder(event_id, reminder_time)
 
 
