@@ -25,6 +25,7 @@ class _MockArq:
 class _MockEmailNotificationService:
     def __init__(self) -> None:
         self.send_event_creation_confirmation = AsyncMock()
+        self.send_registration_confirmation = AsyncMock()
 
 
 def _auth_user() -> AuthSessionUser:
@@ -60,6 +61,35 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
     }
     payload.update(overrides)
     return payload
+
+
+def _event_doc(**overrides: Any) -> dict[str, Any]:
+    event: dict[str, Any] = {
+        "id": 1,
+        "title": "Registration Event",
+        "about": "An event that should confirm registrations",
+        "organizer_user_id": 1,
+        "price": 25.0,
+        "total_capacity": 100,
+        "registered_count": 0,
+        "start_time": datetime(2026, 8, 1, 10, 0, 0),
+        "end_time": datetime(2026, 8, 1, 12, 0, 0),
+        "category": "Workshop",
+        "status": "approved",
+        "is_online": False,
+        "image_url": None,
+        "schedule": [],
+        "location": {
+            "longitude": -122.4194,
+            "latitude": 37.7749,
+            "address": "123 Main St",
+            "city": "San Francisco",
+            "state": "CA",
+            "zip_code": "94102",
+        },
+    }
+    event.update(overrides)
+    return event
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
@@ -126,6 +156,91 @@ async def test_create_event_enqueues_reminder_and_sends_confirmation(
 
 
 @pytest.mark.asyncio
+async def test_register_event_sends_registration_confirmation(
+    db: AsyncDatabase[dict[str, Any]],
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(_event_doc())
+    arq = _MockArq()
+    email_notifs = _MockEmailNotificationService()
+
+    client = _make_client(db, arq=arq, email_notifs=email_notifs)
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 200
+    email_notifs.send_registration_confirmation.assert_awaited_once()
+    confirmation_call = email_notifs.send_registration_confirmation.await_args
+    assert confirmation_call is not None
+    assert confirmation_call.args[0] == "organizer@example.com"
+    event = confirmation_call.args[1]
+    assert isinstance(event, Event)
+    assert event.id == 1
+    assert event.title == "Registration Event"
+    email_notifs.send_event_creation_confirmation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_register_event_restored_cancelled_registration_sends_confirmation(
+    db: AsyncDatabase[dict[str, Any]],
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(_event_doc())
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "cancelled", "checked_in_at": None}
+    )
+    arq = _MockArq()
+    email_notifs = _MockEmailNotificationService()
+
+    client = _make_client(db, arq=arq, email_notifs=email_notifs)
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 200
+    email_notifs.send_registration_confirmation.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_register_event_existing_active_registration_does_not_confirm_again(
+    db: AsyncDatabase[dict[str, Any]],
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(_event_doc(registered_count=1))
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+    arq = _MockArq()
+    email_notifs = _MockEmailNotificationService()
+
+    client = _make_client(db, arq=arq, email_notifs=email_notifs)
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 200
+    email_notifs.send_registration_confirmation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_register_event_rejection_does_not_send_registration_confirmation(
+    db: AsyncDatabase[dict[str, Any]],
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(_event_doc(total_capacity=1, registered_count=1))
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 5, "status": "going", "checked_in_at": None}
+    )
+    arq = _MockArq()
+    email_notifs = _MockEmailNotificationService()
+
+    client = _make_client(db, arq=arq, email_notifs=email_notifs)
+    async with client:
+        resp = await client.post("/events/1/attendance")
+
+    assert resp.status_code == 400
+    email_notifs.send_registration_confirmation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_create_event_validation_error_does_not_notify(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
@@ -140,3 +255,4 @@ async def test_create_event_validation_error_does_not_notify(
     assert resp.status_code == 422
     arq.schedule_event_reminder.assert_not_awaited()
     email_notifs.send_event_creation_confirmation.assert_not_awaited()
+    email_notifs.send_registration_confirmation.assert_not_awaited()

@@ -832,7 +832,11 @@ async def remove_event_from_app_calendar(
 
 @router.post("/{event_id}/attendance", response_model=AttendanceRegisterResponse)
 async def register_attendance(
-    db: DbDep, request: Request, event_id: int, current_user: AuthUserDep
+    db: DbDep,
+    request: Request,
+    event_id: int,
+    current_user: AuthUserDep,
+    email_notif: EmailNotifDep,
 ) -> AttendanceRegisterResponse:
     """Register the authenticated user for a given event."""
     raw_event = await db["events"].find_one(_public_event_visibility_filter(event_id))
@@ -899,6 +903,7 @@ async def register_attendance(
             user_id=current_user.id,
             event=event,
         )
+        await email_notif.send_registration_confirmation(current_user.email, event)
     except Exception:
         if inserted_attendance_id is not None:
             await db["attendance"].delete_one({"_id": inserted_attendance_id})
