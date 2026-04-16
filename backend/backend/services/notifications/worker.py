@@ -1,20 +1,41 @@
+import asyncio
+import logging
 from typing import Any, TypedDict
 
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
 from backend.db.client import get_mongo_client
+from backend.models.event import Event
 from backend.services.notifications.arq import get_redis_settings
+from backend.services.notifications.email import (
+    EmailNotificationService,
+    create_email_notification_service,
+)
 
 
 class Context(TypedDict):
     client: AsyncMongoClient[dict[str, Any]]
     db: AsyncDatabase[dict[str, Any]]
+    email: EmailNotificationService
 
 
 async def send_event_reminder(ctx: Context, event_id: str) -> None:
-    # TODO: implement this
-    print(f"sending event reminder for event id {event_id}")
+    user_ids = await ctx["db"]["attendances"].distinct(
+        "user_id", {"event_id": event_id}
+    )
+    users = await ctx["db"]["users"].find({"_id": {"$in": user_ids}}).to_list(None)
+    event_dict = await ctx["db"]["events"].find_one({"_id": event_id})
+    event = Event.parse_obj(event_dict) if event_dict else None
+    if event is None:
+        logging.getLogger(__name__).error(
+            "Event with id %s not found for reminder job", event_id
+        )
+        return
+
+    await asyncio.gather(
+        *[ctx["email"].send_event_reminder(user["email"], event) for user in users]
+    )
 
 
 class WorkerSettings:
@@ -26,6 +47,7 @@ class WorkerSettings:
         client = get_mongo_client()
         ctx["client"] = client
         ctx["db"] = client["evently"]
+        ctx["email"] = create_email_notification_service()
 
     @staticmethod
     async def on_shutdown(ctx: Context) -> None:

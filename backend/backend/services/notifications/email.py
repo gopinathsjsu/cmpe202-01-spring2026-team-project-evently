@@ -51,6 +51,21 @@ class EmailNotificationService:
                 "Failed to send registration confirmation email, error: %s", e
             )
 
+    async def send_event_reminder(self, recipient_email: str, event: Event) -> None:
+        try:
+            await resend.Emails.send_async(
+                {
+                    "from": self.from_email,
+                    "to": [recipient_email],
+                    "subject": "Evently - Event Reminder",
+                    "html": f"<h1>Event Reminder</h1><p>{event.title} starts at {event.start_time}</p>",
+                },
+            )
+        except ResendError as e:
+            logging.getLogger(__name__).exception(
+                "Failed to send event reminder email, error: %s", e
+            )
+
 
 def create_email_notification_service(
     resend_api_key: str | None = None,
