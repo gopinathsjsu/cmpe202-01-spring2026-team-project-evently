@@ -21,7 +21,7 @@ from backend.routes.events import router as events_router
 from backend.routes.users import UPLOAD_DIR
 from backend.routes.users import router as users_router
 from backend.seed import ensure_required_startup_users
-from backend.services.notifications.arq import create_arq_pool
+from backend.services.notifications.arq import create_arq_client
 from backend.services.notifications.email import create_email_notification_service
 
 _logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db = db_client["evently"]
     await ensure_required_startup_users(app.state.db)
 
-    arq = await create_arq_pool()
+    arq = await create_arq_client()
     app.state.arq = arq
 
     email_notification_service = create_email_notification_service()

@@ -3,7 +3,6 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
-from arq import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
@@ -31,7 +30,7 @@ from backend.services.calendar_sync import (
     delete_google_calendar_event,
     google_calendar_event_payload,
 )
-from backend.services.notifications.arq import get_arq
+from backend.services.notifications.arq import ArqClient, get_arq
 from backend.services.notifications.email import (
     REMINDER_LEAD_TIME_MINUTES,
     EmailNotificationService,
@@ -44,7 +43,7 @@ DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 AuthUserDep = Annotated[AuthSessionUser, Depends(require_authenticated_user)]
 USER_CALENDAR_COLLECTION = "user_calendar_entries"
 USER_CALENDAR_SYNC_COLLECTION = "user_calendar_syncs"
-ArqDep = Annotated[ArqRedis, Depends(get_arq)]
+ArqDep = Annotated[ArqClient, Depends(get_arq)]
 EmailNotifDep = Annotated[EmailNotificationService, Depends(get_email_notif_service)]
 
 # ---------------------------------------------------------------------------
@@ -1025,11 +1024,9 @@ async def create_event(
 
     await db["events"].insert_one({**event.model_dump(), "registered_count": 0})
 
-    await arq.enqueue_job(
-        "send_event_reminder",
-        event_id=event.id,
-        _defer_until=event.start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
-        _job_id=f"event_reminder_{event.id}",
+    await arq.schedule_event_reminder(
+        event.id,
+        event.start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
     )
     await email_notif.send_event_creation_confirmation(current_user.email, event)
 
