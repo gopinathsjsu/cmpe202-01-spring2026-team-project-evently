@@ -6,6 +6,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
 
 from backend.db.client import get_mongo_client
+from backend.models.attendance import AttendanceStatus
 from backend.models.event import Event
 from backend.services.notifications.arq import get_redis_settings
 from backend.services.notifications.email import (
@@ -21,7 +22,13 @@ class Context(TypedDict):
 
 
 async def send_event_reminder(ctx: Context, event_id: int) -> None:
-    user_ids = await ctx["db"]["attendance"].distinct("user_id", {"event_id": event_id})
+    user_ids = await ctx["db"]["attendance"].distinct(
+        "user_id",
+        {
+            "event_id": event_id,
+            "status": {"$ne": AttendanceStatus.Cancelled.value},
+        },
+    )
     users = await ctx["db"]["users"].find({"id": {"$in": user_ids}}).to_list(None)
     event_dict = await ctx["db"]["events"].find_one({"id": event_id})
     event = Event.model_validate(event_dict) if event_dict else None

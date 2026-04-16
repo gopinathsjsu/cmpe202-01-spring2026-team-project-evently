@@ -122,6 +122,40 @@ async def test_reminder_worker_uses_evently_ids_for_event_and_recipients() -> No
     ]
 
 
+@pytest.mark.asyncio
+async def test_reminder_worker_excludes_cancelled_attendance() -> None:
+    db = _ReminderDb(
+        attendance_docs=[
+            {
+                "event_id": 11,
+                "user_id": 7,
+                "status": AttendanceStatus.Going.value,
+                "checked_in_at": None,
+            },
+            {
+                "event_id": 11,
+                "user_id": 8,
+                "status": AttendanceStatus.CheckedIn.value,
+                "checked_in_at": datetime(2026, 8, 1, 9, 30, 0),
+            },
+            {
+                "event_id": 11,
+                "user_id": 9,
+                "status": AttendanceStatus.Cancelled.value,
+                "checked_in_at": None,
+            },
+        ]
+    )
+    email = _ReminderEmail()
+    ctx = cast(Context, {"db": db, "email": email})
+
+    await send_event_reminder(ctx, 11)
+
+    assert db.users.find_filter == {"id": {"$in": [7, 8]}}
+    assert [recipient for recipient, _ in email.sent] == [
+        "first@example.com",
+        "second@example.com",
+    ]
 class _UpcomingEventsCursor:
     def __init__(self, docs: list[dict[str, Any]]) -> None:
         self._docs = docs
