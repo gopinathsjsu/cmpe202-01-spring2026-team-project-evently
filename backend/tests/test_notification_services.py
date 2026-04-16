@@ -1,12 +1,13 @@
 import logging
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
-from unittest.mock import AsyncMock
+from typing import Any, cast
 
 import pytest
 import resend
 from fastapi import FastAPI
 from resend.exceptions import ResendError
+from resend.http_client_async import AsyncHTTPClient
 from starlette.requests import Request
 
 from backend.models.event import Event, EventCategory, Location
@@ -16,6 +17,34 @@ from backend.services.notifications.email import (
     create_email_notification_service,
     get_email_notif_service,
 )
+
+
+class _RecordingAsyncHTTPClient(AsyncHTTPClient):
+    def __init__(self) -> None:
+        self.requests: list[
+            tuple[str, str, Mapping[str, str], dict[str, object] | list[object] | None]
+        ] = []
+
+    async def request(
+        self,
+        method: str,
+        url: str,
+        headers: Mapping[str, str],
+        json: dict[str, object] | list[object] | None = None,
+    ) -> tuple[bytes, int, Mapping[str, str]]:
+        self.requests.append((method, url, dict(headers), json))
+        return b'{"id":"email-id"}', 200, {"content-type": "application/json"}
+
+
+class _RecordingEmailSender:
+    def __init__(self, side_effect: ResendError | None = None) -> None:
+        self.payloads: list[Mapping[str, object]] = []
+        self.side_effect = side_effect
+
+    async def send_async(self, params: Mapping[str, object]) -> None:
+        self.payloads.append(params)
+        if self.side_effect is not None:
+            raise self.side_effect
 
 
 def _request_for_app(app: FastAPI) -> Request:
@@ -52,19 +81,9 @@ def _event() -> Event:
     )
 
 
-def _patch_resend_send_async(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    send_async = AsyncMock()
-    monkeypatch.setattr(resend.Emails, "send_async", send_async)
-    return send_async
-
-
-def _sent_payload(send_async: AsyncMock) -> dict[str, Any]:
-    send_async.assert_awaited_once()
-    call = send_async.await_args
-    assert call is not None
-    payload = call.args[0]
-    assert isinstance(payload, dict)
-    return payload
+def _sent_payload(email_sender: _RecordingEmailSender) -> Mapping[str, Any]:
+    assert len(email_sender.payloads) == 1
+    return cast(Mapping[str, Any], email_sender.payloads[0])
 
 
 def test_get_redis_settings_prefers_explicit_url(
@@ -101,26 +120,48 @@ def test_get_redis_settings_falls_back_to_arq_defaults(
     assert settings.database == 0
 
 
-def test_create_email_notification_service_prefers_explicit_key(
+@pytest.mark.asyncio
+async def test_create_email_notification_service_prefers_explicit_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RESEND_API_KEY", "env-key")
+    monkeypatch.setattr(resend, "api_key", "global-key")
+    http_client = _RecordingAsyncHTTPClient()
+    monkeypatch.setattr(resend, "default_async_http_client", http_client)
 
     service = create_email_notification_service("explicit-key")
+    await service.send_event_reminder("attendee@example.com", _event())
 
     assert isinstance(service, EmailNotificationService)
-    assert resend.api_key == "explicit-key"
+    assert http_client.requests[0][2]["Authorization"] == "Bearer explicit-key"
+    assert resend.api_key == "global-key"
 
 
-def test_create_email_notification_service_uses_env_key(
+@pytest.mark.asyncio
+async def test_create_email_notification_service_uses_env_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RESEND_API_KEY", "env-key")
+    monkeypatch.setattr(resend, "api_key", "global-key")
+    http_client = _RecordingAsyncHTTPClient()
+    monkeypatch.setattr(resend, "default_async_http_client", http_client)
 
     service = create_email_notification_service()
+    await service.send_event_reminder("attendee@example.com", _event())
 
     assert isinstance(service, EmailNotificationService)
-    assert resend.api_key == "env-key"
+    assert http_client.requests[0][2]["Authorization"] == "Bearer env-key"
+    assert resend.api_key == "global-key"
+
+
+def test_email_service_constructor_does_not_mutate_resend_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(resend, "api_key", "global-key")
+
+    EmailNotificationService("service-key")
+
+    assert resend.api_key == "global-key"
 
 
 def test_create_email_notification_service_requires_key(
@@ -133,17 +174,17 @@ def test_create_email_notification_service_requires_key(
 
 
 @pytest.mark.asyncio
-async def test_send_event_creation_confirmation_payload(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    send_async = _patch_resend_send_async(monkeypatch)
+async def test_send_event_creation_confirmation_payload() -> None:
+    email_sender = _RecordingEmailSender()
     service = EmailNotificationService(
-        "test-key", from_email="Evently <events@example.com>"
+        "test-key",
+        from_email="Evently <events@example.com>",
+        email_sender=email_sender,
     )
 
     await service.send_event_creation_confirmation("organizer@example.com", _event())
 
-    payload = _sent_payload(send_async)
+    payload = _sent_payload(email_sender)
     assert payload["from"] == "Evently <events@example.com>"
     assert payload["to"] == ["organizer@example.com"]
     assert payload["subject"] == "Evently - Event Creation Confirmation"
@@ -152,17 +193,17 @@ async def test_send_event_creation_confirmation_payload(
 
 
 @pytest.mark.asyncio
-async def test_send_registration_confirmation_payload(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    send_async = _patch_resend_send_async(monkeypatch)
+async def test_send_registration_confirmation_payload() -> None:
+    email_sender = _RecordingEmailSender()
     service = EmailNotificationService(
-        "test-key", from_email="Evently <events@example.com>"
+        "test-key",
+        from_email="Evently <events@example.com>",
+        email_sender=email_sender,
     )
 
     await service.send_registration_confirmation("attendee@example.com", _event())
 
-    payload = _sent_payload(send_async)
+    payload = _sent_payload(email_sender)
     assert payload["from"] == "Evently <events@example.com>"
     assert payload["to"] == ["attendee@example.com"]
     assert payload["subject"] == "Evently - Registration Confirmation"
@@ -171,17 +212,17 @@ async def test_send_registration_confirmation_payload(
 
 
 @pytest.mark.asyncio
-async def test_send_event_reminder_payload(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    send_async = _patch_resend_send_async(monkeypatch)
+async def test_send_event_reminder_payload() -> None:
+    email_sender = _RecordingEmailSender()
     service = EmailNotificationService(
-        "test-key", from_email="Evently <events@example.com>"
+        "test-key",
+        from_email="Evently <events@example.com>",
+        email_sender=email_sender,
     )
 
     await service.send_event_reminder("attendee@example.com", _event())
 
-    payload = _sent_payload(send_async)
+    payload = _sent_payload(email_sender)
     assert payload["from"] == "Evently <events@example.com>"
     assert payload["to"] == ["attendee@example.com"]
     assert payload["subject"] == "Evently - Event Reminder"
@@ -191,14 +232,12 @@ async def test_send_event_reminder_payload(
 
 @pytest.mark.asyncio
 async def test_email_service_logs_and_swallows_resend_errors(
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    send_async = AsyncMock(
-        side_effect=ResendError("500", "server_error", "boom", "retry")
+    email_sender = _RecordingEmailSender(
+        ResendError("500", "server_error", "boom", "retry")
     )
-    monkeypatch.setattr(resend.Emails, "send_async", send_async)
-    service = EmailNotificationService("test-key")
+    service = EmailNotificationService("test-key", email_sender=email_sender)
     event = _event()
 
     with caplog.at_level(logging.ERROR):
@@ -206,7 +245,7 @@ async def test_email_service_logs_and_swallows_resend_errors(
         await service.send_registration_confirmation("attendee@example.com", event)
         await service.send_event_reminder("attendee@example.com", event)
 
-    assert send_async.await_count == 3
+    assert len(email_sender.payloads) == 3
     assert "Failed to send event creation confirmation email" in caplog.text
     assert "Failed to send registration confirmation email" in caplog.text
     assert "Failed to send event reminder email" in caplog.text
