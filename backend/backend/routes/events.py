@@ -1031,7 +1031,7 @@ async def create_event(
         _defer_until=event.start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
         _job_id=f"event_reminder_{event.id}",
     )
-    await email_notif.send_confirmation(current_user.email, event)
+    await email_notif.send_event_creation_confirmation(current_user.email, event)
 
     return EventDetail.from_event(event, attending_count=0, favorites_count=0)
 
