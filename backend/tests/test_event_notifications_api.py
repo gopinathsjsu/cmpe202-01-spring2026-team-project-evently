@@ -19,12 +19,12 @@ from backend.services.notifications.email import (
 
 class _MockArq:
     def __init__(self) -> None:
-        self.enqueue_job = AsyncMock()
+        self.schedule_event_reminder = AsyncMock()
 
 
 class _MockEmailNotificationService:
     def __init__(self) -> None:
-        self.send_confirmation = AsyncMock()
+        self.send_event_creation_confirmation = AsyncMock()
 
 
 def _auth_user() -> AuthSessionUser:
@@ -106,19 +106,16 @@ async def test_create_event_enqueues_reminder_and_sends_confirmation(
     body = resp.json()
     assert body["id"] == 1
 
-    arq.enqueue_job.assert_awaited_once()
-    reminder_call = arq.enqueue_job.await_args
+    arq.schedule_event_reminder.assert_awaited_once()
+    reminder_call = arq.schedule_event_reminder.await_args
     assert reminder_call is not None
-    assert reminder_call.args == ("send_event_reminder",)
-    assert reminder_call.kwargs == {
-        "event_id": 1,
-        "_defer_until": datetime(2026, 8, 1, 10, 0, 0)
-        - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
-        "_job_id": "event_reminder_1",
-    }
+    assert reminder_call.args == (
+        1,
+        datetime(2026, 8, 1, 10, 0, 0) - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
+    )
 
-    email_notifs.send_confirmation.assert_awaited_once()
-    confirmation_call = email_notifs.send_confirmation.await_args
+    email_notifs.send_event_creation_confirmation.assert_awaited_once()
+    confirmation_call = email_notifs.send_event_creation_confirmation.await_args
     assert confirmation_call is not None
     assert confirmation_call.args[0] == "organizer@example.com"
     event = confirmation_call.args[1]
@@ -141,5 +138,5 @@ async def test_create_event_validation_error_does_not_notify(
         resp = await client.post("/events/", json={"title": "incomplete"})
 
     assert resp.status_code == 422
-    arq.enqueue_job.assert_not_awaited()
-    email_notifs.send_confirmation.assert_not_awaited()
+    arq.schedule_event_reminder.assert_not_awaited()
+    email_notifs.send_event_creation_confirmation.assert_not_awaited()
