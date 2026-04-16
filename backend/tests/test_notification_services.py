@@ -242,9 +242,7 @@ async def test_send_event_reminder_payload() -> None:
 async def test_email_html_escapes_event_title(method_name: str) -> None:
     email_sender = _RecordingEmailSender()
     service = EmailNotificationService("test-key", email_sender=email_sender)
-    malicious_title = (
-        "\"><img src=x onerror=alert(1)></p><script>alert(1)</script>&"
-    )
+    malicious_title = '"><img src=x onerror=alert(1)></p><script>alert(1)</script>&'
 
     send_email = cast(
         Callable[[str, Event], Awaitable[None]],
