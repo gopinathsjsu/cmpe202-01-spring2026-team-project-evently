@@ -24,12 +24,12 @@ services:
     volumes:
       - redis-data:/data
     command:
-      - redis-server
-      - --appendonly
-      - "yes"
+      - redis_data:/data
+    environment:
+      - REDIS_ARGS=--appendonly yes
 
 volumes:
   mongodb_data:
 
-  redis-data:
+  redis_data:
     driver: local
