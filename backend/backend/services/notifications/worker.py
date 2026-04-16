@@ -17,11 +17,6 @@ async def send_event_reminder(ctx: Context, event_id: str) -> None:
     print(f"sending event reminder for event id {event_id}")
 
 
-async def cancel_event_reminder(ctx: Context, event_id: str) -> None:
-    # TODO: implement this
-    print(f"canceling event reminder for event id {event_id}")
-
-
 class WorkerSettings:
     functions = [send_event_reminder]
     redis_settings = get_redis_settings()
