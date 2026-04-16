@@ -26,12 +26,29 @@ class EmailNotificationService:
                     "from": self.from_email,
                     "to": [recipient_email],
                     "subject": "Evently - Event Creation Confirmation",
-                    "html": f"<h1>Registration Confirmed</h1><p>You registered for {event.title}</p>",
+                    "html": f"<h1>Event Created</h1><p>You created '{event.title}'</p>",
                 },
             )
         except ResendError as e:
             logging.getLogger(__name__).exception(
                 "Failed to send event creation confirmation email, error: %s", e
+            )
+
+    async def send_registration_confirmation(
+        self, recipient_email: str, event: Event
+    ) -> None:
+        try:
+            await resend.Emails.send_async(
+                {
+                    "from": self.from_email,
+                    "to": [recipient_email],
+                    "subject": "Evently - Registration Confirmation",
+                    "html": f"<h1>Registration Confirmed</h1><p>You registered for {event.title}</p>",
+                },
+            )
+        except ResendError as e:
+            logging.getLogger(__name__).exception(
+                "Failed to send registration confirmation email, error: %s", e
             )
 
 
