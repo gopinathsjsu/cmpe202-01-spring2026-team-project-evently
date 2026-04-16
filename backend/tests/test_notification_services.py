@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+import resend
 from fastapi import FastAPI
 from starlette.requests import Request
 
@@ -64,7 +65,8 @@ def test_create_email_notification_service_prefers_explicit_key(
 
     service = create_email_notification_service("explicit-key")
 
-    assert service._resend_api_key == "explicit-key"
+    assert isinstance(service, EmailNotificationService)
+    assert resend.api_key == "explicit-key"
 
 
 def test_create_email_notification_service_uses_env_key(
@@ -74,7 +76,8 @@ def test_create_email_notification_service_uses_env_key(
 
     service = create_email_notification_service()
 
-    assert service._resend_api_key == "env-key"
+    assert isinstance(service, EmailNotificationService)
+    assert resend.api_key == "env-key"
 
 
 def test_create_email_notification_service_requires_key(
