@@ -64,5 +64,10 @@ def run() -> None:
 
     from arq.cli import cli
 
-    sys.argv = ["arq", "backend.services.notifications.worker.WorkerSettings"]
+    argv0 = sys.argv[0] if sys.argv else "arq"
+    sys.argv = [
+        argv0,
+        "backend.services.notifications.worker.WorkerSettings",
+        *sys.argv[1:],
+    ]
     cli()

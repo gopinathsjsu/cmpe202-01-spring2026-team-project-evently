@@ -1029,10 +1029,9 @@ async def create_event(
 
     await db["events"].insert_one({**event.model_dump(), "registered_count": 0})
 
-    await arq.schedule_event_reminder(
-        event.id,
-        event.start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
-    )
+    reminder_time = event.start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES)
+    if reminder_time > datetime.now(UTC):
+        await arq.schedule_event_reminder(event.id, reminder_time)
     await email_notif.send_event_creation_confirmation(current_user.email, event)
 
     return EventDetail.from_event(event, attending_count=0, favorites_count=0)
