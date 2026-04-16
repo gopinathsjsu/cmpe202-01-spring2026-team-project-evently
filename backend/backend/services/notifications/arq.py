@@ -4,6 +4,8 @@ from arq import ArqRedis, create_pool
 from arq.connections import RedisSettings
 from fastapi import Request
 
+# TODO: create backfill function for app startup
+
 
 def get_redis_settings(url: str | None = None) -> RedisSettings:
     """Returns Redis settings for ARQ.

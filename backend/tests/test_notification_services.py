@@ -60,29 +60,29 @@ def test_get_redis_settings_falls_back_to_arq_defaults(
 def test_create_email_notification_service_prefers_explicit_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("SENDGRID_API_KEY", "env-key")
+    monkeypatch.setenv("RESEND_API_KEY", "env-key")
 
     service = create_email_notification_service("explicit-key")
 
-    assert service._sendgrid_api_key == "explicit-key"
+    assert service._resend_api_key == "explicit-key"
 
 
 def test_create_email_notification_service_uses_env_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("SENDGRID_API_KEY", "env-key")
+    monkeypatch.setenv("RESEND_API_KEY", "env-key")
 
     service = create_email_notification_service()
 
-    assert service._sendgrid_api_key == "env-key"
+    assert service._resend_api_key == "env-key"
 
 
 def test_create_email_notification_service_requires_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("SENDGRID_API_KEY", raising=False)
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
 
-    with pytest.raises(ValueError, match="SENDGRID_API_KEY"):
+    with pytest.raises(ValueError, match="RESEND_API_KEY"):
         create_email_notification_service()
 
 

@@ -8,8 +8,8 @@ REMINDER_LEAD_TIME_MINUTES = 60
 
 
 class EmailNotificationService:
-    def __init__(self, sendgrid_api_key: str) -> None:
-        self._sendgrid_api_key = sendgrid_api_key
+    def __init__(self, resend_api_key: str) -> None:
+        self._resend_api_key = resend_api_key
 
     async def send_confirmation(self, recipient_email: str, event: Event) -> None:
         # TODO: implement this
@@ -17,13 +17,13 @@ class EmailNotificationService:
 
 
 def create_email_notification_service(
-    sendgrid_api_key: str | None = None,
+    resend_api_key: str | None = None,
 ) -> EmailNotificationService:
-    """Create an EmailNotificationService instance using the provided SendGrid API key or the `SENDGRID_API_KEY` environment variable."""
-    api_key = sendgrid_api_key or os.getenv("SENDGRID_API_KEY")
+    """Create an EmailNotificationService instance using the provided Resend API key or the `RESEND_API_KEY` environment variable."""
+    api_key = resend_api_key or os.getenv("RESEND_API_KEY")
     if not api_key:
         raise ValueError(
-            "SENDGRID_API_KEY environment variable is not set and no API key was provided"
+            "RESEND_API_KEY environment variable is not set and no API key was provided"
         )
     return EmailNotificationService(api_key)
 
