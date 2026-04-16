@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import Any, cast
 
@@ -58,10 +58,10 @@ def _request_for_app(app: FastAPI) -> Request:
     return Request(scope)
 
 
-def _event() -> Event:
+def _event(title: str = "Notification Test Event") -> Event:
     return Event(
         id=11,
-        title="Notification Test Event",
+        title=title,
         about="An event used to verify notification email payloads",
         organizer_user_id=7,
         price=25.0,
@@ -228,6 +228,38 @@ async def test_send_event_reminder_payload() -> None:
     assert payload["subject"] == "Evently - Event Reminder"
     assert "Notification Test Event" in payload["html"]
     assert "2026-08-01 10:00:00" in payload["html"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method_name",
+    [
+        "send_event_creation_confirmation",
+        "send_registration_confirmation",
+        "send_event_reminder",
+    ],
+)
+async def test_email_html_escapes_event_title(method_name: str) -> None:
+    email_sender = _RecordingEmailSender()
+    service = EmailNotificationService("test-key", email_sender=email_sender)
+    malicious_title = (
+        "\"><img src=x onerror=alert(1)></p><script>alert(1)</script>&"
+    )
+
+    send_email = cast(
+        Callable[[str, Event], Awaitable[None]],
+        getattr(service, method_name),
+    )
+    await send_email("attendee@example.com", _event(title=malicious_title))
+
+    html = cast(str, _sent_payload(email_sender)["html"])
+    assert malicious_title not in html
+    assert "<img" not in html
+    assert "</p><script>" not in html
+    assert (
+        "&quot;&gt;&lt;img src=x onerror=alert(1)&gt;&lt;/p&gt;"
+        "&lt;script&gt;alert(1)&lt;/script&gt;&amp;"
+    ) in html
 
 
 @pytest.mark.asyncio

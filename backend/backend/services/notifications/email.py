@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from collections.abc import Mapping
+from html import escape
 from typing import Protocol
 
 import resend
@@ -13,6 +14,10 @@ from resend.version import get_version
 from backend.models.event import Event
 
 REMINDER_LEAD_TIME_MINUTES = 60
+
+
+def _html_text(value: object) -> str:
+    return escape(str(value), quote=True)
 
 
 class EmailSender(Protocol):
@@ -114,13 +119,15 @@ class EmailNotificationService:
     async def send_event_creation_confirmation(
         self, recipient_email: str, event: Event
     ) -> None:
+        event_title = _html_text(event.title)
+
         try:
             await self._email_sender.send_async(
                 {
                     "from": self.from_email,
                     "to": [recipient_email],
                     "subject": "Evently - Event Creation Confirmation",
-                    "html": f"<h1>Event Created</h1><p>You created '{event.title}'</p>",
+                    "html": f"<h1>Event Created</h1><p>You created '{event_title}'</p>",
                 },
             )
         except ResendError as e:
@@ -131,13 +138,15 @@ class EmailNotificationService:
     async def send_registration_confirmation(
         self, recipient_email: str, event: Event
     ) -> None:
+        event_title = _html_text(event.title)
+
         try:
             await self._email_sender.send_async(
                 {
                     "from": self.from_email,
                     "to": [recipient_email],
                     "subject": "Evently - Registration Confirmation",
-                    "html": f"<h1>Registration Confirmed</h1><p>You registered for {event.title}</p>",
+                    "html": f"<h1>Registration Confirmed</h1><p>You registered for {event_title}</p>",
                 },
             )
         except ResendError as e:
@@ -146,13 +155,16 @@ class EmailNotificationService:
             )
 
     async def send_event_reminder(self, recipient_email: str, event: Event) -> None:
+        event_title = _html_text(event.title)
+        start_time = _html_text(event.start_time)
+
         try:
             await self._email_sender.send_async(
                 {
                     "from": self.from_email,
                     "to": [recipient_email],
                     "subject": "Evently - Event Reminder",
-                    "html": f"<h1>Event Reminder</h1><p>{event.title} starts at {event.start_time}</p>",
+                    "html": f"<h1>Event Reminder</h1><p>{event_title} starts at {start_time}</p>",
                 },
             )
         except ResendError as e:
