@@ -23,6 +23,7 @@ class _FakeMongoClient:
 class _FakeArq:
     def __init__(self) -> None:
         self.closed = False
+        self.schedule_all_upcoming_event_reminders = AsyncMock()
 
     async def close(self) -> None:
         self.closed = True
@@ -39,7 +40,7 @@ async def test_lifespan_wires_database_arq_and_email_services(
 
     get_mongo_client = Mock(return_value=mongo_client)
     ensure_required_startup_users = AsyncMock()
-    create_arq_pool = AsyncMock(return_value=arq)
+    create_arq_client = AsyncMock(return_value=arq)
     create_email_notification_service = Mock(return_value=email_service)
 
     monkeypatch.setattr(api_module, "get_mongo_client", get_mongo_client)
@@ -48,7 +49,7 @@ async def test_lifespan_wires_database_arq_and_email_services(
         "ensure_required_startup_users",
         ensure_required_startup_users,
     )
-    monkeypatch.setattr(api_module, "create_arq_pool", create_arq_pool)
+    monkeypatch.setattr(api_module, "create_arq_client", create_arq_client)
     monkeypatch.setattr(
         api_module,
         "create_email_notification_service",
@@ -65,7 +66,8 @@ async def test_lifespan_wires_database_arq_and_email_services(
 
     get_mongo_client.assert_called_once_with()
     ensure_required_startup_users.assert_awaited_once_with(app.state.db)
-    create_arq_pool.assert_awaited_once_with()
+    create_arq_client.assert_awaited_once_with()
     create_email_notification_service.assert_called_once_with()
+    arq.schedule_all_upcoming_event_reminders.assert_awaited_once_with(app.state.db)
     assert mongo_client.closed is True
     assert arq.closed is True
