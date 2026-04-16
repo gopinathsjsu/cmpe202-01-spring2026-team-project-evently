@@ -20,13 +20,11 @@ class Context(TypedDict):
     email: EmailNotificationService
 
 
-async def send_event_reminder(ctx: Context, event_id: str) -> None:
-    user_ids = await ctx["db"]["attendances"].distinct(
-        "user_id", {"event_id": event_id}
-    )
-    users = await ctx["db"]["users"].find({"_id": {"$in": user_ids}}).to_list(None)
-    event_dict = await ctx["db"]["events"].find_one({"_id": event_id})
-    event = Event.parse_obj(event_dict) if event_dict else None
+async def send_event_reminder(ctx: Context, event_id: int) -> None:
+    user_ids = await ctx["db"]["attendance"].distinct("user_id", {"event_id": event_id})
+    users = await ctx["db"]["users"].find({"id": {"$in": user_ids}}).to_list(None)
+    event_dict = await ctx["db"]["events"].find_one({"id": event_id})
+    event = Event.model_validate(event_dict) if event_dict else None
     if event is None:
         logging.getLogger(__name__).error(
             "Event with id %s not found for reminder job", event_id
