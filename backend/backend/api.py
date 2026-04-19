@@ -39,7 +39,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         arq = await create_arq_client()
         app.state.arq = arq
 
-        email_notification_service = create_email_notification_service()
+        email_notification_service = create_email_notification_service(
+            allow_missing=True
+        )
         app.state.email_notification_service = email_notification_service
 
         await arq.schedule_all_upcoming_event_reminders(app.state.db)

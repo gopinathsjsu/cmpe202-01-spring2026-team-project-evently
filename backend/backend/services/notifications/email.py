@@ -173,12 +173,48 @@ class EmailNotificationService:
             )
 
 
+class DisabledEmailNotificationService(EmailNotificationService):
+    def __init__(self) -> None:
+        self.from_email = os.environ.get("EMAIL_FROM", "Acme <onboarding@resend.dev>")
+        self._logger = logging.getLogger(__name__)
+
+    async def _log_disabled_send(
+        self, notification_type: str, recipient_email: str, event: Event
+    ) -> None:
+        self._logger.info(
+            "Email notifications disabled; skipping %s email to %s for event %s",
+            notification_type,
+            recipient_email,
+            event.id,
+        )
+
+    async def send_event_creation_confirmation(
+        self, recipient_email: str, event: Event
+    ) -> None:
+        await self._log_disabled_send("event creation confirmation", recipient_email, event)
+
+    async def send_registration_confirmation(
+        self, recipient_email: str, event: Event
+    ) -> None:
+        await self._log_disabled_send("registration confirmation", recipient_email, event)
+
+    async def send_event_reminder(self, recipient_email: str, event: Event) -> None:
+        await self._log_disabled_send("event reminder", recipient_email, event)
+
+
 def create_email_notification_service(
     resend_api_key: str | None = None,
+    *,
+    allow_missing: bool = False,
 ) -> EmailNotificationService:
     """Create an EmailNotificationService instance using the provided Resend API key or the `RESEND_API_KEY` environment variable."""
     api_key = resend_api_key or os.getenv("RESEND_API_KEY")
     if not api_key:
+        if allow_missing:
+            logging.getLogger(__name__).warning(
+                "RESEND_API_KEY is not set; email notifications are disabled"
+            )
+            return DisabledEmailNotificationService()
         raise ValueError(
             "RESEND_API_KEY environment variable is not set and no API key was provided"
         )

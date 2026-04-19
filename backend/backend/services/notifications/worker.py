@@ -52,7 +52,7 @@ class WorkerSettings:
         client = get_mongo_client()
         ctx["client"] = client
         ctx["db"] = client["evently"]
-        ctx["email"] = create_email_notification_service()
+        ctx["email"] = create_email_notification_service(allow_missing=True)
 
     @staticmethod
     async def on_shutdown(ctx: Context) -> None:

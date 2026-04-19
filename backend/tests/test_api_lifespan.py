@@ -67,7 +67,7 @@ async def test_lifespan_wires_database_arq_and_email_services(
     get_mongo_client.assert_called_once_with()
     ensure_required_startup_users.assert_awaited_once_with(app.state.db)
     create_arq_client.assert_awaited_once_with()
-    create_email_notification_service.assert_called_once_with()
+    create_email_notification_service.assert_called_once_with(allow_missing=True)
     arq.schedule_all_upcoming_event_reminders.assert_awaited_once_with(app.state.db)
     assert mongo_client.closed is True
     assert arq.closed is True
@@ -107,5 +107,6 @@ async def test_lifespan_closes_started_resources_when_startup_fails(
         async with api_module.lifespan(app):
             pass
 
+    create_email_notification_service.assert_called_once_with(allow_missing=True)
     assert mongo_client.closed is True
     assert arq.closed is True

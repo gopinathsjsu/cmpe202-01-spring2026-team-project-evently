@@ -13,6 +13,7 @@ from starlette.requests import Request
 from backend.models.event import Event, EventCategory, Location
 from backend.services.notifications.arq import get_arq, get_redis_settings
 from backend.services.notifications.email import (
+    DisabledEmailNotificationService,
     EmailNotificationService,
     create_email_notification_service,
     get_email_notif_service,
@@ -171,6 +172,26 @@ def test_create_email_notification_service_requires_key(
 
     with pytest.raises(ValueError, match="RESEND_API_KEY"):
         create_email_notification_service()
+
+
+@pytest.mark.asyncio
+async def test_create_email_notification_service_can_disable_email_when_key_missing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.delenv("RESEND_API_KEY", raising=False)
+    event = _event()
+
+    with caplog.at_level(logging.INFO):
+        service = create_email_notification_service(allow_missing=True)
+        await service.send_event_creation_confirmation("organizer@example.com", event)
+        await service.send_registration_confirmation("attendee@example.com", event)
+        await service.send_event_reminder("attendee@example.com", event)
+
+    assert isinstance(service, DisabledEmailNotificationService)
+    assert "RESEND_API_KEY is not set; email notifications are disabled" in caplog.text
+    assert "skipping event creation confirmation email" in caplog.text
+    assert "skipping registration confirmation email" in caplog.text
+    assert "skipping event reminder email" in caplog.text
 
 
 @pytest.mark.asyncio
