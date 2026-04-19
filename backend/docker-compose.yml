@@ -24,9 +24,9 @@ services:
     volumes:
       - redis_data:/data
     command:
-      - redis_data:/data
-    environment:
-      - REDIS_ARGS=--appendonly yes
+      - redis-server
+      - --appendonly
+      - "yes"
 
 volumes:
   mongodb_data:
