@@ -292,7 +292,7 @@ def test_get_arq_returns_app_state_object() -> None:
 def test_get_arq_raises_when_missing() -> None:
     app = FastAPI()
 
-    with pytest.raises(RuntimeError, match="ArqRedis not initialized"):
+    with pytest.raises(RuntimeError, match="ArqClient not initialized"):
         get_arq(_request_for_app(app))
 
 

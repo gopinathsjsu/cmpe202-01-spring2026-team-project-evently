@@ -10,6 +10,13 @@ from pymongo.asynchronous.database import AsyncDatabase
 from .email import REMINDER_LEAD_TIME_MINUTES
 
 
+def utc_naive_datetime(value: datetime) -> datetime:
+    """Normalize datetimes to naive UTC for reminder scheduling."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
+
+
 class ArqClient:
     def __init__(self, arq_redis: ArqRedis) -> None:
         self._arq_redis = arq_redis
@@ -33,7 +40,7 @@ class ArqClient:
         now = datetime.now(UTC).replace(tzinfo=None)
         async for event_dict in db["events"].find({"start_time": {"$gt": now}}):
             event_id = event_dict["id"]
-            start_time = event_dict["start_time"]
+            start_time = utc_naive_datetime(event_dict["start_time"])
             reminder_time = start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES)
             if reminder_time > now:
                 await self.schedule_event_reminder(event_id, reminder_time)
@@ -60,5 +67,5 @@ def get_arq(request: Request) -> ArqClient:
     """FastAPI dependency that returns the shared ArqClient."""
     arq_client: ArqClient | None = getattr(request.app.state, "arq", None)
     if arq_client is None:
-        raise RuntimeError("ArqRedis not initialized")
+        raise RuntimeError("ArqClient not initialized")
     return arq_client

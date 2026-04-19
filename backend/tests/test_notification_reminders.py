@@ -310,6 +310,28 @@ async def test_startup_reschedules_reminders_with_evently_event_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_startup_rescheduling_normalizes_aware_datetimes_to_utc() -> None:
+    start_time = datetime.now(UTC) + timedelta(hours=2)
+    events = _UpcomingEventsCollection(
+        [{"_id": "mongo-event-id", "id": 42, "start_time": start_time}]
+    )
+    db = _UpcomingEventsDb(events)
+    arq = _RecordingArqClient()
+
+    await arq.schedule_all_upcoming_event_reminders(
+        cast(AsyncDatabase[dict[str, Any]], db)
+    )
+
+    assert arq.scheduled == [
+        (
+            42,
+            start_time.astimezone(UTC).replace(tzinfo=None)
+            - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_startup_rescheduling_skips_events_inside_reminder_window() -> None:
     now = datetime.now(UTC).replace(tzinfo=None)
     near_start_time = now + timedelta(minutes=30)

@@ -30,7 +30,7 @@ from backend.services.calendar_sync import (
     delete_google_calendar_event,
     google_calendar_event_payload,
 )
-from backend.services.notifications.arq import ArqClient, get_arq
+from backend.services.notifications.arq import ArqClient, get_arq, utc_naive_datetime
 from backend.services.notifications.email import (
     REMINDER_LEAD_TIME_MINUTES,
     EmailNotificationService,
@@ -1029,8 +1029,10 @@ async def create_event(
 
     await db["events"].insert_one({**event.model_dump(), "registered_count": 0})
 
-    reminder_time = event.start_time - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES)
-    if reminder_time > datetime.now(tz=None):
+    reminder_time = utc_naive_datetime(event.start_time) - timedelta(
+        minutes=REMINDER_LEAD_TIME_MINUTES
+    )
+    if reminder_time > datetime.now(UTC).replace(tzinfo=None):
         await arq.schedule_event_reminder(event.id, reminder_time)
     await email_notif.send_event_creation_confirmation(current_user.email, event)
 

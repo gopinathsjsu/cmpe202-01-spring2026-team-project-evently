@@ -156,6 +156,29 @@ async def test_create_event_enqueues_reminder_and_sends_confirmation(
 
 
 @pytest.mark.asyncio
+async def test_create_event_normalizes_aware_start_time_for_reminder(
+    db: AsyncDatabase[dict[str, Any]],
+) -> None:
+    await _clean(db)
+    arq = _MockArq()
+    email_notifs = _MockEmailNotificationService()
+    payload = _valid_payload(
+        start_time="2026-08-01T10:00:00+02:00",
+        end_time="2026-08-01T12:00:00+02:00",
+    )
+
+    client = _make_client(db, arq=arq, email_notifs=email_notifs)
+    async with client:
+        resp = await client.post("/events/", json=payload)
+
+    assert resp.status_code == 201
+    arq.schedule_event_reminder.assert_awaited_once_with(
+        1,
+        datetime(2026, 8, 1, 8, 0, 0) - timedelta(minutes=REMINDER_LEAD_TIME_MINUTES),
+    )
+
+
+@pytest.mark.asyncio
 async def test_register_event_sends_registration_confirmation(
     db: AsyncDatabase[dict[str, Any]],
 ) -> None:
