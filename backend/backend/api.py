@@ -32,19 +32,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db_client = get_mongo_client()
     app.state.db_client = db_client
     app.state.db = db_client["evently"]
-    await ensure_required_startup_users(app.state.db)
+    arq = None
+    try:
+        await ensure_required_startup_users(app.state.db)
 
-    arq = await create_arq_client()
-    app.state.arq = arq
+        arq = await create_arq_client()
+        app.state.arq = arq
 
-    email_notification_service = create_email_notification_service()
-    app.state.email_notification_service = email_notification_service
+        email_notification_service = create_email_notification_service()
+        app.state.email_notification_service = email_notification_service
 
-    await arq.schedule_all_upcoming_event_reminders(app.state.db)
+        await arq.schedule_all_upcoming_event_reminders(app.state.db)
 
-    yield
-    await db_client.close()
-    await arq.close()
+        yield
+    finally:
+        await db_client.close()
+        if arq is not None:
+            await arq.close()
 
 
 def create_app() -> FastAPI:

@@ -71,3 +71,41 @@ async def test_lifespan_wires_database_arq_and_email_services(
     arq.schedule_all_upcoming_event_reminders.assert_awaited_once_with(app.state.db)
     assert mongo_client.closed is True
     assert arq.closed is True
+
+
+@pytest.mark.asyncio
+async def test_lifespan_closes_started_resources_when_startup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastAPI()
+    mongo_client = _FakeMongoClient()
+    arq = _FakeArq()
+    email_service = object()
+
+    get_mongo_client = Mock(return_value=mongo_client)
+    ensure_required_startup_users = AsyncMock()
+    create_arq_client = AsyncMock(return_value=arq)
+    create_email_notification_service = Mock(return_value=email_service)
+    arq.schedule_all_upcoming_event_reminders.side_effect = RuntimeError(
+        "scheduler failed"
+    )
+
+    monkeypatch.setattr(api_module, "get_mongo_client", get_mongo_client)
+    monkeypatch.setattr(
+        api_module,
+        "ensure_required_startup_users",
+        ensure_required_startup_users,
+    )
+    monkeypatch.setattr(api_module, "create_arq_client", create_arq_client)
+    monkeypatch.setattr(
+        api_module,
+        "create_email_notification_service",
+        create_email_notification_service,
+    )
+
+    with pytest.raises(RuntimeError, match="scheduler failed"):
+        async with api_module.lifespan(app):
+            pass
+
+    assert mongo_client.closed is True
+    assert arq.closed is True
