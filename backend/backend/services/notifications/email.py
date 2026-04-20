@@ -191,12 +191,16 @@ class DisabledEmailNotificationService(EmailNotificationService):
     async def send_event_creation_confirmation(
         self, recipient_email: str, event: Event
     ) -> None:
-        await self._log_disabled_send("event creation confirmation", recipient_email, event)
+        await self._log_disabled_send(
+            "event creation confirmation", recipient_email, event
+        )
 
     async def send_registration_confirmation(
         self, recipient_email: str, event: Event
     ) -> None:
-        await self._log_disabled_send("registration confirmation", recipient_email, event)
+        await self._log_disabled_send(
+            "registration confirmation", recipient_email, event
+        )
 
     async def send_event_reminder(self, recipient_email: str, event: Event) -> None:
         await self._log_disabled_send("event reminder", recipient_email, event)

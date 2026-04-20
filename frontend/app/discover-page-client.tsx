@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Navbar from "@/app/components/navbar";
 import { AuthRequiredAction } from "@/components/auth-required-action";
+import { parseApiDate } from "@/lib/datetime";
 import { apiFetch } from "@/lib/api";
 import type { EventCategory } from "@/lib/types";
 
@@ -37,7 +38,7 @@ const MONTH_LABELS = [
 ] as const;
 
 function formatEventDate(iso: string): string {
-  const d = new Date(iso);
+  const d = parseApiDate(iso);
   const day = WEEKDAY_LABELS[d.getUTCDay()];
   const month = MONTH_LABELS[d.getUTCMonth()];
   const dayOfMonth = d.getUTCDate();
