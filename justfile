@@ -6,7 +6,7 @@ default:
 
 # ── Full-stack (Docker Compose) ──────────────────────────────────────
 
-# Start the full stack (MongoDB + backend + frontend)
+# Start the full stack (MongoDB + Redis + backend + notification worker + frontend)
 up *args: _stop-dev-db
     docker compose up --build {{args}}
 
@@ -30,18 +30,22 @@ logs *args:
 
 # ── Individual services for local development ────────────────────────
 
-# Start only MongoDB (prerequisite for local backend development)
+# Start only MongoDB and Redis (prerequisites for local backend development)
 db: _stop-dev-db
-    docker compose up -d mongodb
+    docker compose up -d mongodb redis
 
-# Stop MongoDB
+# Stop MongoDB and Redis
 db-stop:
-    docker compose stop mongodb
+    docker compose stop mongodb redis
     @docker compose -f backend/docker-compose.yml down 2>/dev/null || true
 
-# Start backend in local dev mode (MongoDB + seed + server with hot reload)
+# Start backend in local dev mode (MongoDB + Redis + seed + server + notification worker)
 backend:
     cd backend && just dev
+
+# Start notification worker in local dev mode
+worker:
+    cd backend && just worker
 
 # Start frontend in local dev mode (requires backend running)
 frontend:

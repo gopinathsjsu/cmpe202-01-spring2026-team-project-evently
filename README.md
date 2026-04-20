@@ -39,13 +39,14 @@ Note: Any root-level `.env` / `.env.example` file (if present) is not used by th
 just up          # or: docker compose up --build
 ```
 
-This starts MongoDB, the FastAPI backend (with sample data), and the Next.js frontend:
+This starts MongoDB, Redis, the FastAPI backend (with sample data), the notification worker, and the Next.js frontend:
 
 | Service  | URL                        |
 |----------|----------------------------|
 | Frontend | http://localhost:3000       |
 | Backend  | http://localhost:8000       |
 | MongoDB  | mongodb://localhost:27017   |
+| Redis    | redis://localhost:6379/0    |
 
 The frontend container uses two API base URLs:
 - `NEXT_PUBLIC_API_URL=http://localhost:8000` for browser requests
@@ -63,7 +64,7 @@ just reset       # stop and wipe the database volume
 For development with hot reloading, run services outside Docker. Additional prerequisites: [`uv`](https://docs.astral.sh/uv/), [`pnpm`](https://pnpm.io/installation), and [`just`](https://github.com/casey/just#packages).
 
 ```bash
-# Terminal 1 — start MongoDB + seed + backend (from project root)
+# Terminal 1 — start MongoDB + Redis + seed + backend + notification worker (from project root)
 just backend
 
 # Terminal 2 — start the frontend (from project root)

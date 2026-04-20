@@ -3,40 +3,54 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from os import getenv
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pymongo.asynchronous.mongo_client import AsyncMongoClient
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from backend.app_config import build_frontend_settings
+from backend.db import get_mongo_client
 from backend.routes.auth import router as auth_router
 from backend.routes.contact import router as contact_router
 from backend.routes.events import router as events_router
 from backend.routes.users import UPLOAD_DIR
 from backend.routes.users import router as users_router
 from backend.seed import ensure_required_startup_users
+from backend.services.notifications.arq import create_arq_client
+from backend.services.notifications.email import create_email_notification_service
 
 _logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    url = os.getenv("DATABASE_URL", "")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable is not set")
-    client: AsyncMongoClient[dict[str, Any]] = AsyncMongoClient(url)
-    app.state.db_client = client
-    app.state.db = client["evently"]
-    await ensure_required_startup_users(app.state.db)
-    yield
-    await client.close()
+    db_client = get_mongo_client()
+    app.state.db_client = db_client
+    app.state.db = db_client["evently"]
+    arq = None
+    try:
+        await ensure_required_startup_users(app.state.db)
+
+        arq = await create_arq_client()
+        app.state.arq = arq
+
+        email_notification_service = create_email_notification_service(
+            allow_missing=True
+        )
+        app.state.email_notification_service = email_notification_service
+
+        await arq.schedule_all_upcoming_event_reminders(app.state.db)
+
+        yield
+    finally:
+        await db_client.close()
+        if arq is not None:
+            await arq.close()
 
 
 def create_app() -> FastAPI:
