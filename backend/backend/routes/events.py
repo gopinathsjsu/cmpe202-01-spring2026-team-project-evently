@@ -30,6 +30,12 @@ from backend.services.calendar_sync import (
     delete_google_calendar_event,
     google_calendar_event_payload,
 )
+from backend.services.notifications.arq import ArqClient, get_arq, utc_naive_datetime
+from backend.services.notifications.email import (
+    REMINDER_LEAD_TIME_MINUTES,
+    EmailNotificationService,
+    get_email_notif_service,
+)
 
 router = APIRouter()
 
@@ -37,6 +43,8 @@ DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 AuthUserDep = Annotated[AuthSessionUser, Depends(require_authenticated_user)]
 USER_CALENDAR_COLLECTION = "user_calendar_entries"
 USER_CALENDAR_SYNC_COLLECTION = "user_calendar_syncs"
+ArqDep = Annotated[ArqClient, Depends(get_arq)]
+EmailNotifDep = Annotated[EmailNotificationService, Depends(get_email_notif_service)]
 
 # ---------------------------------------------------------------------------
 # Response schemas
@@ -824,7 +832,11 @@ async def remove_event_from_app_calendar(
 
 @router.post("/{event_id}/attendance", response_model=AttendanceRegisterResponse)
 async def register_attendance(
-    db: DbDep, request: Request, event_id: int, current_user: AuthUserDep
+    db: DbDep,
+    request: Request,
+    event_id: int,
+    current_user: AuthUserDep,
+    email_notif: EmailNotifDep,
 ) -> AttendanceRegisterResponse:
     """Register the authenticated user for a given event."""
     raw_event = await db["events"].find_one(_public_event_visibility_filter(event_id))
@@ -891,6 +903,7 @@ async def register_attendance(
             user_id=current_user.id,
             event=event,
         )
+        await email_notif.send_registration_confirmation(current_user.email, event)
     except Exception:
         if inserted_attendance_id is not None:
             await db["attendance"].delete_one({"_id": inserted_attendance_id})
@@ -988,7 +1001,11 @@ async def cancel_attendance(
 
 @router.post("/", response_model=EventDetail, status_code=201)
 async def create_event(
-    db: DbDep, body: EventCreate, current_user: AuthUserDep
+    db: DbDep,
+    body: EventCreate,
+    current_user: AuthUserDep,
+    arq: ArqDep,
+    email_notif: EmailNotifDep,
 ) -> EventDetail:
     """Create a new event and return its full detail."""
     new_id = await _next_event_id(db)
@@ -1011,6 +1028,13 @@ async def create_event(
     )
 
     await db["events"].insert_one({**event.model_dump(), "registered_count": 0})
+
+    reminder_time = utc_naive_datetime(event.start_time) - timedelta(
+        minutes=REMINDER_LEAD_TIME_MINUTES
+    )
+    if reminder_time > datetime.now(UTC).replace(tzinfo=None):
+        await arq.schedule_event_reminder(event.id, reminder_time)
+    await email_notif.send_event_creation_confirmation(current_user.email, event)
 
     return EventDetail.from_event(event, attending_count=0, favorites_count=0)
 

@@ -6,11 +6,13 @@
 
 The backend requires the following environment variables to be set:
 
-| Variable       | Description                 | Example                                    |
-| -------------- | --------------------------- | ------------------------------------------ |
-| `DB_USERNAME`  | MongoDB root username       | `admin`                                    |
-| `DB_PASSWORD`  | MongoDB root password       | `password`                                 |
-| `DATABASE_URL` | Full MongoDB connection URL | `mongodb://admin:password@localhost:27017` |
+| Variable         | Description                 | Example                                    |
+| ---------------- | --------------------------- | ------------------------------------------ |
+| `DB_USERNAME`    | MongoDB root username       | `admin`                                    |
+| `DB_PASSWORD`    | MongoDB root password       | `password`                                 |
+| `DATABASE_URL`   | Full MongoDB connection URL | `mongodb://admin:password@localhost:27017` |
+| `REDIS_URL`      | Full Redis connection URL   | `redis://localhost:6379/0`                 |
+| `RESEND_API_KEY` | Resend API Key              | `1234SEND`                                 |
 
 **Setup:**
 
@@ -35,10 +37,11 @@ The backend requires the following environment variables to be set:
 > [!TIP]
 > See the available `just` recipes by running `just`
 
-1. Run `just db` to start the database
+1. Run `just db` to start MongoDB and Redis
 2. Run `uv run backend` to start the backend
+3. Run `uv run notif-worker` in another terminal to start the notification worker
 
-Alternatively, you can run `just dev`
+Alternatively, you can run `just dev` to start MongoDB, Redis, the backend, and the notification worker together.
 
 ## CI
 

@@ -1,4 +1,5 @@
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -7,6 +8,8 @@ from pymongo.asynchronous.database import AsyncDatabase
 from backend.api import create_app
 from backend.db import get_db
 from backend.routes.auth import AuthSessionUser, require_authenticated_user
+from backend.services.notifications.arq import get_arq
+from backend.services.notifications.email import get_email_notif_service
 
 
 def _make_client(
@@ -15,6 +18,8 @@ def _make_client(
 ) -> tuple[Any, AsyncClient]:
     app = create_app()
     app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[get_arq] = lambda: AsyncMock()
+    app.dependency_overrides[get_email_notif_service] = lambda: AsyncMock()
     if auth_user is not None:
         app.dependency_overrides[require_authenticated_user] = lambda: auth_user
     transport = ASGITransport(app=app)

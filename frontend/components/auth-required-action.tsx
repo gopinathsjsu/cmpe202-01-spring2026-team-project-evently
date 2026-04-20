@@ -1,9 +1,11 @@
 "use client";
 
-import Link from "next/link";
-import { ReactNode, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ReactNode, useState, useSyncExternalStore } from "react";
 
 import { useAuth } from "@/lib/auth";
+
+const subscribeToHydration = () => () => {};
 
 interface AuthRequiredActionProps {
   actionLabel: string;
@@ -24,39 +26,44 @@ export function AuthRequiredAction({
   onAuthenticatedClick,
   disabled = false,
 }: AuthRequiredActionProps) {
+  const router = useRouter();
   const { user, loading } = useAuth();
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
   const [open, setOpen] = useState(false);
 
   const signinHref = `/signin?next=${encodeURIComponent(nextPath)}`;
   const signupHref = `/signup?next=${encodeURIComponent(nextPath)}`;
+  const isDisabled = Boolean(disabled);
+  const actionDisabled = !hydrated || isDisabled;
 
-  if (user && authenticatedHref) {
-    return (
-      <Link href={authenticatedHref} className={className}>
-        {children}
-      </Link>
-    );
-  }
+  function handleClick() {
+    if (!hydrated || loading || isDisabled) {
+      return;
+    }
 
-  if (user && onAuthenticatedClick) {
-    return (
-      <button
-        type="button"
-        onClick={onAuthenticatedClick}
-        disabled={disabled}
-        className={className}
-      >
-        {children}
-      </button>
-    );
+    if (user && authenticatedHref) {
+      router.push(authenticatedHref);
+      return;
+    }
+
+    if (user && onAuthenticatedClick) {
+      onAuthenticatedClick();
+      return;
+    }
+
+    setOpen(true);
   }
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        disabled={disabled || loading}
+        onClick={handleClick}
+        disabled={actionDisabled}
         className={className}
       >
         {children}
