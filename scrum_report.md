@@ -90,3 +90,9 @@
 - update profile page functionality
 - signin/singup functionality
 - create account page
+
+## 4/14 - 4/20
+
+- email notifications/reminders support
+- AWS deployment POC
+- debugging
