@@ -56,7 +56,8 @@ function deriveBrowserApiBase(): string {
   }
 
   if (isLoopbackHost(window.location.hostname)) {
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
+    // FastAPI dev server is HTTP; the Next app may be HTTPS (e.g. local TLS proxy).
+    return `http://${window.location.hostname}:8000`;
   }
 
   return sameOriginApiBase();
@@ -65,7 +66,7 @@ function deriveBrowserApiBase(): string {
 function deriveRequestApiBase(request: NextRequest): string {
   const hostname = request.nextUrl.hostname;
   if (isLoopbackHost(hostname)) {
-    return `${request.nextUrl.protocol}//${hostname}:8000`;
+    return `http://${hostname}:8000`;
   }
   return sameOriginApiBase(request);
 }
