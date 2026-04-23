@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 import resend
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from resend.exceptions import ResendError
 from resend.http_client_async import AsyncHTTPClient
 from starlette.requests import Request
@@ -313,8 +313,9 @@ def test_get_arq_returns_app_state_object() -> None:
 def test_get_arq_raises_when_missing() -> None:
     app = FastAPI()
 
-    with pytest.raises(RuntimeError, match="ArqClient not initialized"):
+    with pytest.raises(HTTPException) as exc_info:
         get_arq(_request_for_app(app))
+    assert exc_info.value.status_code == 503
 
 
 def test_get_email_notif_service_returns_app_state_object() -> None:

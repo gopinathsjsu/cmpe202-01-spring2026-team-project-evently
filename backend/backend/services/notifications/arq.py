@@ -4,7 +4,7 @@ from typing import Any
 
 from arq import ArqRedis, create_pool
 from arq.connections import RedisSettings
-from fastapi import Request
+from fastapi import HTTPException, Request
 from pymongo.asynchronous.database import AsyncDatabase
 
 from .email import REMINDER_LEAD_TIME_MINUTES
@@ -67,5 +67,8 @@ def get_arq(request: Request) -> ArqClient:
     """FastAPI dependency that returns the shared ArqClient."""
     arq_client: ArqClient | None = getattr(request.app.state, "arq", None)
     if arq_client is None:
-        raise RuntimeError("ArqClient not initialized")
+        raise HTTPException(
+            status_code=503,
+            detail="Background job queue unavailable; configure REDIS_URL.",
+        )
     return arq_client

@@ -110,3 +110,38 @@ async def test_lifespan_closes_started_resources_when_startup_fails(
     create_email_notification_service.assert_called_once_with(allow_missing=True)
     assert mongo_client.closed is True
     assert arq.closed is True
+
+
+@pytest.mark.asyncio
+async def test_lifespan_starts_without_arq_when_redis_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = FastAPI()
+    mongo_client = _FakeMongoClient()
+    email_service = object()
+
+    get_mongo_client = Mock(return_value=mongo_client)
+    ensure_required_startup_users = AsyncMock()
+    create_arq_client = AsyncMock(side_effect=ConnectionError("no redis"))
+    create_email_notification_service = Mock(return_value=email_service)
+
+    monkeypatch.setattr(api_module, "get_mongo_client", get_mongo_client)
+    monkeypatch.setattr(
+        api_module,
+        "ensure_required_startup_users",
+        ensure_required_startup_users,
+    )
+    monkeypatch.setattr(api_module, "create_arq_client", create_arq_client)
+    monkeypatch.setattr(
+        api_module,
+        "create_email_notification_service",
+        create_email_notification_service,
+    )
+
+    async with api_module.lifespan(app):
+        assert app.state.arq is None
+        assert app.state.email_notification_service is email_service
+
+    create_arq_client.assert_awaited_once_with()
+    create_email_notification_service.assert_called_once_with(allow_missing=True)
+    assert mongo_client.closed is True
