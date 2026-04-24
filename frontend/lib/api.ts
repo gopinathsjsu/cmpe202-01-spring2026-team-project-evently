@@ -58,6 +58,25 @@ function normalizeBackendUrlsInPayload(value: unknown, key?: string): unknown {
   return value;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function resolveRequestBase(base: string): string {
+  if (typeof window === "undefined" || window.location.protocol !== "https:") {
+    return base;
+  }
+  try {
+    const parsed = new URL(base);
+    if (parsed.protocol === "http:" && !isLoopbackHostname(parsed.hostname)) {
+      return `${window.location.origin}/api`;
+    }
+  } catch {
+    return base;
+  }
+  return base;
+}
+
 /**
  * Thin wrapper around `fetch` that:
  *  - Prefixes the backend base URL
@@ -70,6 +89,7 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const requestBase = resolveRequestBase(getApiBase());
   const headers = new Headers(init?.headers);
   const isFormData =
     typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -78,7 +98,7 @@ export async function apiFetch<T>(
   }
 
   // TODO [auth]: Inject auth headers here when ready.
-  const res = await fetch(`${getApiBase()}${path}`, {
+  const res = await fetch(`${requestBase}${path}`, {
     credentials: init?.credentials ?? "include",
     ...init,
     headers,
