@@ -103,7 +103,12 @@ export class EventlyApiStack extends cdk.Stack {
         enabled: true,
         path: healthCheckPath,
         healthyHttpCodes: '200-399',
-        interval: cdk.Duration.seconds(30),
+        // Instances bootstrap Docker + image pull on first boot; keep checks frequent
+        // so they become healthy quickly once the app starts.
+        interval: cdk.Duration.seconds(15),
+        timeout: cdk.Duration.seconds(5),
+        healthyThresholdCount: 2,
+        unhealthyThresholdCount: 3,
       },
       targetGroupName: `${prefix}-api-tg`,
     });
@@ -222,7 +227,8 @@ export class EventlyApiStack extends cdk.Stack {
       maxCapacity: props.maxCapacity ?? 4,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       autoScalingGroupName: `${prefix}-api-asg`,
-      healthCheck: autoscaling.HealthCheck.elb({ grace: cdk.Duration.minutes(3) }),
+      // Give user-data + container startup enough time before ELB health verdicts.
+      healthCheck: autoscaling.HealthCheck.elb({ grace: cdk.Duration.minutes(8) }),
     });
 
     asg.attachToApplicationTargetGroup(targetGroup);

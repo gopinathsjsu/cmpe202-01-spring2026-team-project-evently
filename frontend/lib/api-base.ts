@@ -44,6 +44,18 @@ function readEnvApiUrl(name: "NEXT_PUBLIC_API_URL" | "API_INTERNAL_URL"): string
   return sanitizeConfiguredApiUrl(raw);
 }
 
+function isHttpsToHttpDowngrade(url: string): boolean {
+  if (typeof window === "undefined" || window.location.protocol !== "https:") {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" && !isLoopbackHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Same-origin `/api` path; Next rewrites to BACKEND_PROXY_TARGET when deployed. */
 function sameOriginApiBase(request?: NextRequest): string {
   if (request) {
@@ -119,6 +131,11 @@ function deriveRequestApiBase(request: NextRequest): string {
 export function getPublicApiBase(request?: NextRequest): string {
   const configured = readEnvApiUrl("NEXT_PUBLIC_API_URL");
   if (configured) {
+    // In HTTPS deployments (e.g., Amplify), browser requests to a plain HTTP API URL
+    // are blocked as mixed content. Route through same-origin `/api` rewrite instead.
+    if (!request && isHttpsToHttpDowngrade(configured)) {
+      return sameOriginApiBase();
+    }
     return request ? configured : normalizeLocalApiBase(configured);
   }
 

@@ -16,6 +16,8 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+Optional **`frontend/.env.local`**: set `NEXT_PUBLIC_API_URL=http://127.0.0.1:8000` (or your ALB) so the UI talks to a real backend. Use **`http://`**, not `https://`, for the local FastAPI server on port 8000.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
