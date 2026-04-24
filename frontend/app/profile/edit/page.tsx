@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import Navbar from "@/app/components/navbar";
 import { ApiError, apiFetch } from "@/lib/api";
-import { getPublicApiBase } from "@/lib/api-base";
+import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import { useRequireAuth } from "@/lib/auth";
 import type { FullUserDetail } from "@/lib/types";
 
@@ -16,8 +16,7 @@ import type { FullUserDetail } from "@/lib/types";
 
 function resolvePhotoUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  return `${getPublicApiBase()}${url}`;
+  return toBrowserSafeBackendUrl(url);
 }
 
 function initials(

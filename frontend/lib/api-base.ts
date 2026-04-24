@@ -157,3 +157,28 @@ export function getApiBase(request?: NextRequest): string {
 
   return getPublicApiBase(request);
 }
+
+/**
+ * Convert backend-returned URLs to browser-safe URLs.
+ * - Relative backend paths are routed through same-origin `/api`.
+ * - Absolute remote `http://...` backend URLs are also routed through `/api`
+ *   to avoid mixed-content on HTTPS frontends.
+ * - External HTTPS URLs are returned unchanged.
+ */
+export function toBrowserSafeBackendUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:" && !isLoopbackHost(parsed.hostname)) {
+      return `${API_PROXY_PREFIX}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.toString();
+  } catch {
+    const normalizedPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    return `${API_PROXY_PREFIX}${normalizedPath}`;
+  }
+}

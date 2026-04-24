@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
+import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import type { EventDetail, UserDetail } from "@/lib/types";
 import { EventLocationMapLoader } from "./event-location-map-loader";
 import { RegistrationCard } from "./registration-card";
@@ -88,7 +89,7 @@ export default async function EventDetailPage({
             <div className="relative aspect-[16/7] w-full overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800">
               {event.image_url ? (
                 <Image
-                  src={event.image_url}
+                  src={toBrowserSafeBackendUrl(event.image_url)}
                   alt={event.title}
                   fill
                   sizes="(min-width: 1024px) 896px, 100vw"

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Navbar from "@/app/components/navbar";
 import { AuthRequiredAction } from "@/components/auth-required-action";
+import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import { parseApiDate } from "@/lib/datetime";
 import { apiFetch } from "@/lib/api";
 import type { EventCategory } from "@/lib/types";
@@ -590,7 +591,7 @@ export default function DiscoverPageClient({
                           >
                             {event.image_url && (
                               <Image
-                                src={event.image_url}
+                                src={toBrowserSafeBackendUrl(event.image_url)}
                                 alt={`${event.title} event image`}
                                 width={640}
                                 height={400}
