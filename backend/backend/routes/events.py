@@ -1058,7 +1058,9 @@ async def get_event_attendees(
 
     attendance_records = await (
         db["attendance"]
-        .find({"event_id": event_id, "status": {"$ne": AttendanceStatus.Cancelled.value}})
+        .find(
+            {"event_id": event_id, "status": {"$ne": AttendanceStatus.Cancelled.value}}
+        )
         .sort("_id", ASCENDING)
         .to_list(length=None)
     )
@@ -1096,9 +1098,7 @@ async def get_event_attendees(
 
     attendees.sort(key=lambda a: (a.last_name.lower(), a.first_name.lower()))
 
-    going_count = sum(
-        1 for a in attendees if a.status == AttendanceStatus.Going.value
-    )
+    going_count = sum(1 for a in attendees if a.status == AttendanceStatus.Going.value)
     checked_in_count = sum(
         1 for a in attendees if a.status == AttendanceStatus.CheckedIn.value
     )
@@ -1118,9 +1118,7 @@ async def get_event_attendees(
 # ---------------------------------------------------------------------------
 
 
-@router.post(
-    "/{event_id}/attendees/{user_id}/check-in", response_model=CheckInResponse
-)
+@router.post("/{event_id}/attendees/{user_id}/check-in", response_model=CheckInResponse)
 async def check_in_attendee(
     db: DbDep, event_id: int, user_id: int, current_user: AuthUserDep
 ) -> CheckInResponse:
@@ -1133,7 +1131,11 @@ async def check_in_attendee(
     _require_organizer_or_admin(current_user, event)
 
     existing = await db["attendance"].find_one(
-        {"event_id": event_id, "user_id": user_id, "status": {"$ne": AttendanceStatus.Cancelled.value}},
+        {
+            "event_id": event_id,
+            "user_id": user_id,
+            "status": {"$ne": AttendanceStatus.Cancelled.value},
+        },
         sort=[("_id", DESCENDING)],
     )
     if existing is None:
@@ -1153,7 +1155,9 @@ async def check_in_attendee(
         },
     )
 
-    return CheckInResponse(event_id=event_id, user_id=user_id, checked_in_at=checked_in_at)
+    return CheckInResponse(
+        event_id=event_id, user_id=user_id, checked_in_at=checked_in_at
+    )
 
 
 # ---------------------------------------------------------------------------
