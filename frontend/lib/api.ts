@@ -1,4 +1,5 @@
 import { getApiBase } from "@/lib/api-base";
+import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 
 // ==========================================================================
 // API CLIENT — Single entry point for all backend requests.
@@ -26,6 +27,35 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
   }
+}
+
+const BACKEND_URL_KEYS = new Set([
+  "image_url",
+  "event_image_url",
+  "profile_photo_url",
+  "redirect_to",
+]);
+
+function normalizeBackendUrlsInPayload(value: unknown, key?: string): unknown {
+  if (typeof value === "string") {
+    if (key && BACKEND_URL_KEYS.has(key)) {
+      return toBrowserSafeBackendUrl(value);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeBackendUrlsInPayload(item));
+  }
+  if (value && typeof value === "object") {
+    const normalized: Record<string, unknown> = {};
+    for (const [entryKey, entryValue] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      normalized[entryKey] = normalizeBackendUrlsInPayload(entryValue, entryKey);
+    }
+    return normalized;
+  }
+  return value;
 }
 
 /**
@@ -74,5 +104,6 @@ export async function apiFetch<T>(
     return (await res.text()) as T;
   }
 
-  return res.json() as Promise<T>;
+  const body = (await res.json()) as unknown;
+  return normalizeBackendUrlsInPayload(body) as T;
 }
