@@ -22,7 +22,14 @@ const nextConfig: NextConfig = {
     if (!target) {
       return [];
     }
-    return [{ source: "/api/:path*", destination: `${target}/:path*` }];
+    return [
+      // FastAPI commonly canonicalizes collection endpoints with a trailing slash.
+      // Map these explicitly to avoid backend 307 redirects to absolute HTTP ALB URLs,
+      // which browsers block as mixed content on HTTPS Amplify pages.
+      { source: "/api/events", destination: `${target}/events/` },
+      { source: "/api/contact", destination: `${target}/contact/` },
+      { source: "/api/:path*", destination: `${target}/:path*` },
+    ];
   },
 };
 
