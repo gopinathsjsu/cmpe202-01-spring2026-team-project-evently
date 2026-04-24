@@ -4,8 +4,44 @@ const DEFAULT_API_URL = "http://localhost:8000";
 
 const API_PROXY_PREFIX = "/api";
 
+function isIpv6Loopback(hostname: string): boolean {
+  return hostname === "::1" || hostname === "[::1]";
+}
+
 function isLoopbackHost(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1";
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    isIpv6Loopback(hostname)
+  );
+}
+
+/**
+ * Uvicorn/FastAPI dev on loopback is HTTP. Env files often wrongly use https://…:8000
+ * (or Next is served over HTTPS while copying the page scheme). Never use TLS for
+ * loopback port 8000 unless you explicitly terminate TLS there (you almost certainly do not).
+ */
+function sanitizeConfiguredApiUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/$/, "");
+  try {
+    const u = new URL(trimmed);
+    const port = u.port || (u.protocol === "https:" ? "443" : "80");
+    if (u.protocol === "https:" && isLoopbackHost(u.hostname) && port === "8000") {
+      u.protocol = "http:";
+      return u.toString().replace(/\/$/, "");
+    }
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+}
+
+function readEnvApiUrl(name: "NEXT_PUBLIC_API_URL" | "API_INTERNAL_URL"): string | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  return sanitizeConfiguredApiUrl(raw);
 }
 
 /** Same-origin `/api` path; Next rewrites to BACKEND_PROXY_TARGET when deployed. */
@@ -17,7 +53,7 @@ function sameOriginApiBase(request?: NextRequest): string {
   if (typeof window !== "undefined") {
     return `${window.location.origin}${API_PROXY_PREFIX}`;
   }
-  const internal = process.env.API_INTERNAL_URL?.trim().replace(/\/$/, "");
+  const internal = readEnvApiUrl("API_INTERNAL_URL");
   if (internal) {
     return internal;
   }
@@ -40,6 +76,9 @@ function normalizeLocalApiBase(configuredBase: string): string {
       return configuredBase;
     }
     configuredUrl.hostname = currentHostname;
+    if (configuredUrl.protocol === "https:" && configuredUrl.port === "8000") {
+      configuredUrl.protocol = "http:";
+    }
     return configuredUrl.toString().replace(/\/$/, "");
   } catch {
     return configuredBase;
@@ -50,14 +89,20 @@ function normalizeLocalApiBase(configuredBase: string): string {
  * Local dev: backend on port 8000. Deployed (Amplify, etc.): never use :8000 on the
  * page host — nothing listens there and `fetch` hangs — use same-origin `/api` instead.
  */
+function loopbackHttpApiOrigin(hostname: string): string {
+  if (hostname === "::1" || hostname === "[::1]") {
+    return "http://[::1]:8000";
+  }
+  return `http://${hostname}:8000`;
+}
+
 function deriveBrowserApiBase(): string {
   if (typeof window === "undefined") {
     return DEFAULT_API_URL;
   }
 
   if (isLoopbackHost(window.location.hostname)) {
-    // FastAPI dev server is HTTP; the Next app may be HTTPS (e.g. local TLS proxy).
-    return `http://${window.location.hostname}:8000`;
+    return loopbackHttpApiOrigin(window.location.hostname);
   }
 
   return sameOriginApiBase();
@@ -66,16 +111,15 @@ function deriveBrowserApiBase(): string {
 function deriveRequestApiBase(request: NextRequest): string {
   const hostname = request.nextUrl.hostname;
   if (isLoopbackHost(hostname)) {
-    return `http://${hostname}:8000`;
+    return loopbackHttpApiOrigin(hostname);
   }
   return sameOriginApiBase(request);
 }
 
 export function getPublicApiBase(request?: NextRequest): string {
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return request
-      ? process.env.NEXT_PUBLIC_API_URL
-      : normalizeLocalApiBase(process.env.NEXT_PUBLIC_API_URL);
+  const configured = readEnvApiUrl("NEXT_PUBLIC_API_URL");
+  if (configured) {
+    return request ? configured : normalizeLocalApiBase(configured);
   }
 
   if (request) {
@@ -87,7 +131,11 @@ export function getPublicApiBase(request?: NextRequest): string {
 
 export function getApiBase(request?: NextRequest): string {
   if (typeof window === "undefined") {
-    return process.env.API_INTERNAL_URL ?? getPublicApiBase(request);
+    const internal = readEnvApiUrl("API_INTERNAL_URL");
+    if (internal) {
+      return internal;
+    }
+    return getPublicApiBase(request);
   }
 
   return getPublicApiBase(request);
