@@ -1209,17 +1209,20 @@ async def get_event_attendees(
 
     attendance_records = await (
         db["attendance"]
-        .find(
-            {"event_id": event_id, "status": {"$ne": AttendanceStatus.Cancelled.value}}
-        )
+        .find({"event_id": event_id})
         .sort("_id", ASCENDING)
         .to_list(length=None)
     )
 
-    # Deduplicate: keep latest record per user (last write wins with ASCENDING sort)
+    # Deduplicate before filtering so a later cancellation hides older active rows.
     latest_by_user: dict[int, dict[str, Any]] = {}
     for record in attendance_records:
         latest_by_user[record["user_id"]] = record
+    latest_by_user = {
+        user_id: record
+        for user_id, record in latest_by_user.items()
+        if record["status"] != AttendanceStatus.Cancelled.value
+    }
 
     user_ids = list(latest_by_user.keys())
     users_by_id: dict[int, dict[str, Any]] = {}
