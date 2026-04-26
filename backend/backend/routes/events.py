@@ -1,5 +1,6 @@
 import logging
 import re
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
@@ -7,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import DuplicateKeyError
 from starlette.requests import Request
 
 from backend.app_config import get_frontend_settings
@@ -43,6 +45,9 @@ DbDep = Annotated[AsyncDatabase[dict[str, Any]], Depends(get_db)]
 AuthUserDep = Annotated[AuthSessionUser, Depends(require_authenticated_user)]
 USER_CALENDAR_COLLECTION = "user_calendar_entries"
 USER_CALENDAR_SYNC_COLLECTION = "user_calendar_syncs"
+EVENT_USER_LOCK_COLLECTION = "event_user_locks"
+EVENT_USER_LOCK_STALE_AFTER = timedelta(minutes=5)
+CALENDAR_REMOVAL_STARTED_AT_FIELD = "removal_started_at"
 ArqDep = Annotated[ArqClient, Depends(get_arq)]
 EmailNotifDep = Annotated[EmailNotificationService, Depends(get_email_notif_service)]
 
@@ -238,6 +243,8 @@ class RemoveAttendeeResponse(BaseModel):
     event_id: int
     user_id: int
     status: Literal["cancelled"] = "cancelled"
+    in_calendar: bool = False
+    google_synced: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +366,41 @@ async def _release_event_slot(db: AsyncDatabase[dict[str, Any]], event_id: int) 
         {"id": event_id, "registered_count": {"$gt": 0}},
         {"$inc": {"registered_count": -1}},
     )
+
+
+def _event_user_lock_id(*, event_id: int, user_id: int) -> str:
+    return f"{event_id}:{user_id}"
+
+
+async def _acquire_event_user_lock(
+    db: AsyncDatabase[dict[str, Any]], *, event_id: int, user_id: int
+) -> str:
+    lock_id = _event_user_lock_id(event_id=event_id, user_id=user_id)
+    now = datetime.now(tz=UTC)
+    await db[EVENT_USER_LOCK_COLLECTION].delete_one(
+        {"_id": lock_id, "acquired_at": {"$lt": now - EVENT_USER_LOCK_STALE_AFTER}}
+    )
+    try:
+        await db[EVENT_USER_LOCK_COLLECTION].insert_one(
+            {
+                "_id": lock_id,
+                "event_id": event_id,
+                "user_id": user_id,
+                "acquired_at": now,
+            }
+        )
+    except DuplicateKeyError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="This event registration is already being updated. Please try again.",
+        ) from exc
+    return lock_id
+
+
+async def _release_event_user_lock(
+    db: AsyncDatabase[dict[str, Any]], lock_id: str
+) -> None:
+    await db[EVENT_USER_LOCK_COLLECTION].delete_one({"_id": lock_id})
 
 
 def _resolve_date_preset(preset: str) -> tuple[datetime, datetime]:
@@ -512,6 +554,23 @@ async def _ensure_event_in_app_calendar(
             google_synced = True
             try:
                 await db[USER_CALENDAR_COLLECTION].insert_one(document)
+            except DuplicateKeyError:
+                try:
+                    await delete_google_calendar_event(
+                        access_token, str(sync_fields["google_calendar_event_id"])
+                    )
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Failed to roll back duplicate Google Calendar event"
+                    )
+                concurrent = await _calendar_entry_for_user(
+                    db, user_id=user_id, event_id=event.id
+                )
+                return (
+                    concurrent is not None
+                    and _string_value(concurrent.get("google_calendar_event_id"))
+                    is not None
+                )
             except Exception:
                 try:
                     await delete_google_calendar_event(
@@ -524,7 +583,17 @@ async def _ensure_event_in_app_calendar(
                 raise
             return google_synced
 
-        await db[USER_CALENDAR_COLLECTION].insert_one(document)
+        try:
+            await db[USER_CALENDAR_COLLECTION].insert_one(document)
+        except DuplicateKeyError:
+            concurrent = await _calendar_entry_for_user(
+                db, user_id=user_id, event_id=event.id
+            )
+            return (
+                concurrent is not None
+                and _string_value(concurrent.get("google_calendar_event_id"))
+                is not None
+            )
         return google_synced
 
     if _string_value(
@@ -534,10 +603,28 @@ async def _ensure_event_in_app_calendar(
             request, event
         )
         try:
-            await db[USER_CALENDAR_COLLECTION].update_one(
-                {"_id": existing["_id"]},
+            result = await db[USER_CALENDAR_COLLECTION].update_one(
+                {
+                    "_id": existing["_id"],
+                    "$or": [
+                        {"google_calendar_event_id": {"$exists": False}},
+                        {"google_calendar_event_id": None},
+                    ],
+                },
                 {"$set": sync_fields},
             )
+            if result.matched_count != 1:
+                await delete_google_calendar_event(
+                    access_token, str(sync_fields["google_calendar_event_id"])
+                )
+                concurrent = await _calendar_entry_for_user(
+                    db, user_id=user_id, event_id=event.id
+                )
+                return (
+                    concurrent is not None
+                    and _string_value(concurrent.get("google_calendar_event_id"))
+                    is not None
+                )
         except Exception:
             try:
                 await delete_google_calendar_event(
@@ -559,14 +646,32 @@ async def _remove_event_from_app_calendar_if_present(
     *,
     user_id: int,
     event_id: int,
-) -> bool:
+) -> tuple[bool, bool]:
     existing = await _calendar_entry_for_user(db, user_id=user_id, event_id=event_id)
     if existing is None:
-        return False
+        return False, False
 
-    google_synced = await _delete_google_calendar_sync_if_present(request, existing)
-    await db[USER_CALENDAR_COLLECTION].delete_one({"_id": existing["_id"]})
-    return google_synced
+    claim = await db[USER_CALENDAR_COLLECTION].update_one(
+        {
+            "_id": existing["_id"],
+            CALENDAR_REMOVAL_STARTED_AT_FIELD: {"$exists": False},
+        },
+        {"$set": {CALENDAR_REMOVAL_STARTED_AT_FIELD: datetime.now(tz=UTC)}},
+    )
+    if claim.matched_count != 1:
+        return False, False
+
+    try:
+        google_synced = await _delete_google_calendar_sync_if_present(request, existing)
+        await db[USER_CALENDAR_COLLECTION].delete_one({"_id": existing["_id"]})
+    except Exception:
+        await db[USER_CALENDAR_COLLECTION].update_one(
+            {"_id": existing["_id"]},
+            {"$unset": {CALENDAR_REMOVAL_STARTED_AT_FIELD: ""}},
+        )
+        raise
+
+    return True, google_synced
 
 
 # ---------------------------------------------------------------------------
@@ -789,13 +894,14 @@ async def get_my_calendar_status(
             attendance_status is not None
             and attendance_status != AttendanceStatus.Cancelled.value
         ):
-            await db[USER_CALENDAR_COLLECTION].insert_one(
-                {
-                    "user_id": current_user.id,
-                    "event_id": event_id,
-                    "added_at": datetime.now(tz=UTC),
-                }
-            )
+            with suppress(DuplicateKeyError):
+                await db[USER_CALENDAR_COLLECTION].insert_one(
+                    {
+                        "user_id": current_user.id,
+                        "event_id": event_id,
+                        "added_at": datetime.now(tz=UTC),
+                    }
+                )
             existing = {"user_id": current_user.id, "event_id": event_id}
 
     return AppCalendarStatusResponse(
@@ -821,12 +927,18 @@ async def add_event_to_app_calendar(
     if raw_event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    google_synced = await _ensure_event_in_app_calendar(
-        db,
-        request,
-        user_id=current_user.id,
-        event=Event(**raw_event),
+    lock_id = await _acquire_event_user_lock(
+        db, event_id=event_id, user_id=current_user.id
     )
+    try:
+        google_synced = await _ensure_event_in_app_calendar(
+            db,
+            request,
+            user_id=current_user.id,
+            event=Event(**raw_event),
+        )
+    finally:
+        await _release_event_user_lock(db, lock_id)
 
     return AppCalendarMutationResponse(
         event_id=event_id,
@@ -851,18 +963,21 @@ async def remove_event_from_app_calendar(
     if raw_event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    if (
-        await _calendar_entry_for_user(db, user_id=current_user.id, event_id=event_id)
-        is None
-    ):
+    lock_id = await _acquire_event_user_lock(
+        db, event_id=event_id, user_id=current_user.id
+    )
+    try:
+        removed, google_synced = await _remove_event_from_app_calendar_if_present(
+            db,
+            request,
+            user_id=current_user.id,
+            event_id=event_id,
+        )
+    finally:
+        await _release_event_user_lock(db, lock_id)
+    if not removed:
         raise HTTPException(status_code=404, detail="Calendar entry not found")
 
-    google_synced = await _remove_event_from_app_calendar_if_present(
-        db,
-        request,
-        user_id=current_user.id,
-        event_id=event_id,
-    )
     return AppCalendarMutationResponse(
         event_id=event_id,
         status="removed",
@@ -894,82 +1009,112 @@ async def register_attendance(
             status_code=400, detail="Organizers cannot register for their own events"
         )
 
-    existing = await db["attendance"].find_one(
-        {"event_id": event_id, "user_id": current_user.id},
-        sort=[("_id", DESCENDING)],
+    lock_id = await _acquire_event_user_lock(
+        db, event_id=event_id, user_id=current_user.id
     )
-    if existing is not None and existing["status"] != AttendanceStatus.Cancelled.value:
-        google_synced = await _ensure_event_in_app_calendar(
-            db,
-            request,
-            user_id=current_user.id,
-            event=event,
+    try:
+        existing = await db["attendance"].find_one(
+            {"event_id": event_id, "user_id": current_user.id},
+            sort=[("_id", DESCENDING)],
         )
+        if (
+            existing is not None
+            and existing["status"] != AttendanceStatus.Cancelled.value
+        ):
+            google_synced = await _ensure_event_in_app_calendar(
+                db,
+                request,
+                user_id=current_user.id,
+                event=event,
+            )
+            return AttendanceRegisterResponse(
+                event_id=event_id,
+                user_id=current_user.id,
+                google_synced=google_synced,
+            )
+
+        await _ensure_registered_count(db, event_id)
+        if not await _reserve_event_slot(db, event_id):
+            raise HTTPException(status_code=400, detail="This event is sold out")
+
+        inserted_attendance_id: object | None = None
+        calendar_preexisting = (
+            await _calendar_entry_for_user(
+                db, user_id=current_user.id, event_id=event_id
+            )
+            is not None
+        )
+        try:
+            if existing is None:
+                insert_result = await db["attendance"].insert_one(
+                    {
+                        "event_id": event_id,
+                        "user_id": current_user.id,
+                        "status": AttendanceStatus.Going.value,
+                        "checked_in_at": None,
+                    }
+                )
+                inserted_attendance_id = insert_result.inserted_id
+            else:
+                result = await db["attendance"].update_one(
+                    {
+                        "_id": existing["_id"],
+                        "status": AttendanceStatus.Cancelled.value,
+                    },
+                    {
+                        "$set": {
+                            "status": AttendanceStatus.Going.value,
+                            "checked_in_at": None,
+                        }
+                    },
+                )
+                if result.matched_count != 1:
+                    raise HTTPException(
+                        status_code=409, detail="Registration state changed"
+                    )
+
+            google_synced = await _ensure_event_in_app_calendar(
+                db,
+                request,
+                user_id=current_user.id,
+                event=event,
+            )
+            await email_notif.send_registration_confirmation(current_user.email, event)
+        except Exception:
+            if inserted_attendance_id is not None:
+                await db["attendance"].delete_one({"_id": inserted_attendance_id})
+            elif existing is not None:
+                await db["attendance"].update_one(
+                    {"_id": existing["_id"]},
+                    {
+                        "$set": {
+                            "status": existing["status"],
+                            "checked_in_at": existing.get("checked_in_at"),
+                        }
+                    },
+                )
+            await _release_event_slot(db, event_id)
+            if not calendar_preexisting:
+                try:
+                    await _remove_event_from_app_calendar_if_present(
+                        db,
+                        request,
+                        user_id=current_user.id,
+                        event_id=event_id,
+                    )
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Failed to roll back calendar entry after registration failure"
+                    )
+            raise
+
         return AttendanceRegisterResponse(
             event_id=event_id,
             user_id=current_user.id,
             google_synced=google_synced,
         )
-
-    await _ensure_registered_count(db, event_id)
-    if not await _reserve_event_slot(db, event_id):
-        raise HTTPException(status_code=400, detail="This event is sold out")
-
-    inserted_attendance_id: object | None = None
-    try:
-        if existing is None:
-            insert_result = await db["attendance"].insert_one(
-                {
-                    "event_id": event_id,
-                    "user_id": current_user.id,
-                    "status": AttendanceStatus.Going.value,
-                    "checked_in_at": None,
-                }
-            )
-            inserted_attendance_id = insert_result.inserted_id
-        else:
-            result = await db["attendance"].update_one(
-                {"_id": existing["_id"]},
-                {
-                    "$set": {
-                        "status": AttendanceStatus.Going.value,
-                        "checked_in_at": None,
-                    }
-                },
-            )
-            if result.matched_count != 1:
-                raise HTTPException(
-                    status_code=409, detail="Registration state changed"
-                )
-
-        google_synced = await _ensure_event_in_app_calendar(
-            db,
-            request,
-            user_id=current_user.id,
-            event=event,
-        )
-        await email_notif.send_registration_confirmation(current_user.email, event)
-    except Exception:
-        if inserted_attendance_id is not None:
-            await db["attendance"].delete_one({"_id": inserted_attendance_id})
-        elif existing is not None:
-            await db["attendance"].update_one(
-                {"_id": existing["_id"]},
-                {
-                    "$set": {
-                        "status": existing["status"],
-                        "checked_in_at": existing.get("checked_in_at"),
-                    }
-                },
-            )
-        await _release_event_slot(db, event_id)
-        raise
-
-    return AttendanceRegisterResponse(
-        event_id=event_id,
-        user_id=current_user.id,
-        google_synced=google_synced,
-    )
+    finally:
+        await _release_event_user_lock(db, lock_id)
 
 
 # ---------------------------------------------------------------------------
@@ -988,49 +1133,55 @@ async def cancel_attendance(
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    existing = await db["attendance"].find_one(
-        {"event_id": event_id, "user_id": current_user.id},
-        sort=[("_id", DESCENDING)],
+    lock_id = await _acquire_event_user_lock(
+        db, event_id=event_id, user_id=current_user.id
     )
-    if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
-        raise HTTPException(status_code=404, detail="Registration not found")
-
-    result = await db["attendance"].update_one(
-        {"_id": existing["_id"]},
-        {
-            "$set": {
-                "status": AttendanceStatus.Cancelled.value,
-                "checked_in_at": None,
-            }
-        },
-    )
-    if result.matched_count != 1:
-        raise HTTPException(status_code=409, detail="Registration state changed")
-
-    await _ensure_registered_count(db, event_id)
-    await _release_event_slot(db, event_id)
-
     try:
-        google_synced = await _remove_event_from_app_calendar_if_present(
-            db,
-            request,
-            user_id=current_user.id,
-            event_id=event_id,
+        existing = await db["attendance"].find_one(
+            {"event_id": event_id, "user_id": current_user.id},
+            sort=[("_id", DESCENDING)],
         )
-    except Exception:
-        await db["attendance"].update_one(
-            {"_id": existing["_id"]},
+        if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
+            raise HTTPException(status_code=404, detail="Registration not found")
+
+        result = await db["attendance"].update_one(
+            {"_id": existing["_id"], "status": existing["status"]},
             {
                 "$set": {
-                    "status": existing["status"],
-                    "checked_in_at": existing.get("checked_in_at"),
+                    "status": AttendanceStatus.Cancelled.value,
+                    "checked_in_at": None,
                 }
             },
         )
-        await db["events"].update_one(
-            {"id": event_id}, {"$inc": {"registered_count": 1}}
-        )
-        raise
+        if result.matched_count != 1:
+            raise HTTPException(status_code=409, detail="Registration state changed")
+
+        await _ensure_registered_count(db, event_id)
+        await _release_event_slot(db, event_id)
+
+        try:
+            _, google_synced = await _remove_event_from_app_calendar_if_present(
+                db,
+                request,
+                user_id=current_user.id,
+                event_id=event_id,
+            )
+        except Exception:
+            await db["attendance"].update_one(
+                {"_id": existing["_id"], "status": AttendanceStatus.Cancelled.value},
+                {
+                    "$set": {
+                        "status": existing["status"],
+                        "checked_in_at": existing.get("checked_in_at"),
+                    }
+                },
+            )
+            await db["events"].update_one(
+                {"id": event_id}, {"$inc": {"registered_count": 1}}
+            )
+            raise
+    finally:
+        await _release_event_user_lock(db, lock_id)
 
     return AttendanceCancelResponse(
         event_id=event_id,
@@ -1130,30 +1281,38 @@ async def check_in_attendee(
     event = Event(**raw_event)
     _require_organizer_or_admin(current_user, event)
 
-    existing = await db["attendance"].find_one(
-        {
-            "event_id": event_id,
-            "user_id": user_id,
-            "status": {"$ne": AttendanceStatus.Cancelled.value},
-        },
-        sort=[("_id", DESCENDING)],
-    )
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Attendee not found")
+    lock_id = await _acquire_event_user_lock(db, event_id=event_id, user_id=user_id)
+    try:
+        existing = await db["attendance"].find_one(
+            {
+                "event_id": event_id,
+                "user_id": user_id,
+                "status": {"$ne": AttendanceStatus.Cancelled.value},
+            },
+            sort=[("_id", DESCENDING)],
+        )
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Attendee not found")
 
-    if existing["status"] == AttendanceStatus.CheckedIn.value:
-        raise HTTPException(status_code=409, detail="Attendee is already checked in")
+        if existing["status"] == AttendanceStatus.CheckedIn.value:
+            raise HTTPException(
+                status_code=409, detail="Attendee is already checked in"
+            )
 
-    checked_in_at = datetime.now(tz=UTC)
-    await db["attendance"].update_one(
-        {"_id": existing["_id"]},
-        {
-            "$set": {
-                "status": AttendanceStatus.CheckedIn.value,
-                "checked_in_at": checked_in_at,
-            }
-        },
-    )
+        checked_in_at = datetime.now(tz=UTC)
+        result = await db["attendance"].update_one(
+            {"_id": existing["_id"], "status": AttendanceStatus.Going.value},
+            {
+                "$set": {
+                    "status": AttendanceStatus.CheckedIn.value,
+                    "checked_in_at": checked_in_at,
+                }
+            },
+        )
+        if result.matched_count != 1:
+            raise HTTPException(status_code=409, detail="Registration state changed")
+    finally:
+        await _release_event_user_lock(db, lock_id)
 
     return CheckInResponse(
         event_id=event_id, user_id=user_id, checked_in_at=checked_in_at
@@ -1179,20 +1338,26 @@ async def undo_check_in_attendee(
     event = Event(**raw_event)
     _require_organizer_or_admin(current_user, event)
 
-    existing = await db["attendance"].find_one(
-        {"event_id": event_id, "user_id": user_id},
-        sort=[("_id", DESCENDING)],
-    )
-    if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
-        raise HTTPException(status_code=404, detail="Attendee not found")
+    lock_id = await _acquire_event_user_lock(db, event_id=event_id, user_id=user_id)
+    try:
+        existing = await db["attendance"].find_one(
+            {"event_id": event_id, "user_id": user_id},
+            sort=[("_id", DESCENDING)],
+        )
+        if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
+            raise HTTPException(status_code=404, detail="Attendee not found")
 
-    if existing["status"] == AttendanceStatus.Going.value:
-        raise HTTPException(status_code=409, detail="Attendee is not checked in")
+        if existing["status"] == AttendanceStatus.Going.value:
+            raise HTTPException(status_code=409, detail="Attendee is not checked in")
 
-    await db["attendance"].update_one(
-        {"_id": existing["_id"]},
-        {"$set": {"status": AttendanceStatus.Going.value, "checked_in_at": None}},
-    )
+        result = await db["attendance"].update_one(
+            {"_id": existing["_id"], "status": AttendanceStatus.CheckedIn.value},
+            {"$set": {"status": AttendanceStatus.Going.value, "checked_in_at": None}},
+        )
+        if result.matched_count != 1:
+            raise HTTPException(status_code=409, detail="Registration state changed")
+    finally:
+        await _release_event_user_lock(db, lock_id)
 
     return UndoCheckInResponse(event_id=event_id, user_id=user_id)
 
@@ -1204,7 +1369,11 @@ async def undo_check_in_attendee(
 
 @router.delete("/{event_id}/attendees/{user_id}", response_model=RemoveAttendeeResponse)
 async def remove_attendee(
-    db: DbDep, event_id: int, user_id: int, current_user: AuthUserDep
+    db: DbDep,
+    request: Request,
+    event_id: int,
+    user_id: int,
+    current_user: AuthUserDep,
 ) -> RemoveAttendeeResponse:
     """Remove an attendee from an event. Restricted to the organizer or an admin."""
     raw_event = await db["events"].find_one({"id": event_id})
@@ -1214,22 +1383,57 @@ async def remove_attendee(
     event = Event(**raw_event)
     _require_organizer_or_admin(current_user, event)
 
-    existing = await db["attendance"].find_one(
-        {"event_id": event_id, "user_id": user_id},
-        sort=[("_id", DESCENDING)],
+    lock_id = await _acquire_event_user_lock(db, event_id=event_id, user_id=user_id)
+    try:
+        existing = await db["attendance"].find_one(
+            {"event_id": event_id, "user_id": user_id},
+            sort=[("_id", DESCENDING)],
+        )
+        if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
+            raise HTTPException(status_code=404, detail="Attendee not found")
+
+        result = await db["attendance"].update_one(
+            {"_id": existing["_id"], "status": existing["status"]},
+            {
+                "$set": {
+                    "status": AttendanceStatus.Cancelled.value,
+                    "checked_in_at": None,
+                }
+            },
+        )
+        if result.matched_count != 1:
+            raise HTTPException(status_code=409, detail="Registration state changed")
+
+        await _ensure_registered_count(db, event_id)
+        await _release_event_slot(db, event_id)
+
+        try:
+            _, google_synced = await _remove_event_from_app_calendar_if_present(
+                db,
+                request,
+                user_id=user_id,
+                event_id=event_id,
+            )
+        except Exception:
+            await db["attendance"].update_one(
+                {"_id": existing["_id"], "status": AttendanceStatus.Cancelled.value},
+                {
+                    "$set": {
+                        "status": existing["status"],
+                        "checked_in_at": existing.get("checked_in_at"),
+                    }
+                },
+            )
+            await db["events"].update_one(
+                {"id": event_id}, {"$inc": {"registered_count": 1}}
+            )
+            raise
+    finally:
+        await _release_event_user_lock(db, lock_id)
+
+    return RemoveAttendeeResponse(
+        event_id=event_id, user_id=user_id, google_synced=google_synced
     )
-    if existing is None or existing["status"] == AttendanceStatus.Cancelled.value:
-        raise HTTPException(status_code=404, detail="Attendee not found")
-
-    await db["attendance"].update_one(
-        {"_id": existing["_id"]},
-        {"$set": {"status": AttendanceStatus.Cancelled.value, "checked_in_at": None}},
-    )
-
-    await _ensure_registered_count(db, event_id)
-    await _release_event_slot(db, event_id)
-
-    return RemoveAttendeeResponse(event_id=event_id, user_id=user_id)
 
 
 # ---------------------------------------------------------------------------

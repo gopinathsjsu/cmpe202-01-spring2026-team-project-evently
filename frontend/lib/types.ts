@@ -174,4 +174,6 @@ export interface RemoveAttendeeResponse {
   event_id: number;
   user_id: number;
   status: "cancelled";
+  in_calendar: false;
+  google_synced: boolean;
 }
