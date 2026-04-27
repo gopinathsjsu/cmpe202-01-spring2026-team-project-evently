@@ -5,6 +5,7 @@ import Navbar from "@/app/components/navbar";
 import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import type { EventDetail, UserDetail } from "@/lib/types";
 import { EventLocationMapLoader } from "./event-location-map-loader";
+import { OrganizerActions } from "./organizer-actions";
 import { RegistrationCard } from "./registration-card";
 import { ShareButtons } from "./share-buttons";
 
@@ -271,6 +272,14 @@ export default async function EventDetailPage({
                 spotsLeft={spotsLeft}
               />
             </div>
+
+            {/* Organizer tools */}
+            <OrganizerActions
+              eventId={event.id}
+              organizerUserId={event.organizer_user_id}
+              attendingCount={event.attending_count}
+              totalCapacity={event.total_capacity}
+            />
 
             {/* Share */}
             <div className="rounded-xl border border-zinc-200 bg-white p-6 text-zinc-900 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100">

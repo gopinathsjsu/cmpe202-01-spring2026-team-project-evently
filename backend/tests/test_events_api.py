@@ -30,25 +30,47 @@ def _make_client(
     return app, client
 
 
-def _auth_user(user_id: int = 1) -> AuthSessionUser:
+def _auth_user(user_id: int = 1, roles: list[str] | None = None) -> AuthSessionUser:
     return AuthSessionUser(
         id=user_id,
         email=f"user{user_id}@example.com",
         first_name="Test",
         last_name="User",
         name="Test User",
-        roles=["user"],
+        roles=roles or ["user"],
     )
+
+
+def _user_doc(
+    user_id: int,
+    *,
+    first_name: str = "Test",
+    last_name: str = "User",
+    email: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": user_id,
+        "username": f"user{user_id}",
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email or f"user{user_id}@example.com",
+        "phone_number": None,
+        "roles": ["user"],
+        "profile": {},
+        "profile_photo_url": None,
+    }
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
     for coll in (
+        "users",
         "events",
         "attendance",
         "event_favorites",
         "counters",
         "user_calendar_entries",
         "user_calendar_syncs",
+        "event_user_locks",
     ):
         await db[coll].delete_many({})
 
@@ -429,6 +451,311 @@ async def test_cancel_event_attendance_returns_404_when_missing(
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Registration not found"
+
+
+@pytest.mark.asyncio
+async def test_cancel_event_attendance_returns_409_when_event_user_is_locked(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "registered_count": 1})
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+    await db["event_user_locks"].insert_one(
+        {
+            "_id": "1:7",
+            "event_id": 1,
+            "user_id": 7,
+            "acquired_at": datetime.now(),
+        }
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.delete("/events/1/attendance")
+
+    assert resp.status_code == 409
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "going"
+    event = await db["events"].find_one({"id": 1})
+    assert event is not None
+    assert event["registered_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_remove_attendee_removes_calendar_and_google_calendar_event(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "registered_count": 1})
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "checked_in", "checked_in_at": None}
+    )
+    await db["user_calendar_entries"].insert_one(
+        {
+            "event_id": 1,
+            "user_id": 7,
+            "added_at": datetime(2026, 6, 1, 12, 0, 0),
+            "google_calendar_event_id": "google-event-1",
+        }
+    )
+
+    _, client = _make_client(db, _auth_user(1))
+    delete_google_calendar_event = AsyncMock(return_value=None)
+    with (
+        patch.object(
+            events_route,
+            "get_google_calendar_access_token",
+            AsyncMock(return_value="google-access-token"),
+        ),
+        patch.object(
+            events_route,
+            "delete_google_calendar_event",
+            delete_google_calendar_event,
+        ),
+    ):
+        async with client:
+            resp = await client.delete("/events/1/attendees/7")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "event_id": 1,
+        "user_id": 7,
+        "status": "cancelled",
+        "in_calendar": False,
+        "google_synced": True,
+    }
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "cancelled"
+    event = await db["events"].find_one({"id": 1})
+    assert event is not None
+    assert event["registered_count"] == 0
+    calendar_entry = await db["user_calendar_entries"].find_one(
+        {"event_id": 1, "user_id": 7}
+    )
+    assert calendar_entry is None
+    delete_google_calendar_event.assert_awaited_once_with(
+        "google-access-token",
+        "google-event-1",
+    )
+
+
+# -----------------------------------------------------------------------
+# Attendee management
+# -----------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_event_attendees_returns_latest_active_attendees_for_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    checked_in_at = datetime(2026, 6, 15, 19, 30, 0)
+    await db["events"].insert_one({**event_data, "registered_count": 2})
+    await db["users"].insert_many(
+        [
+            _user_doc(7, first_name="Avery", last_name="Zephyr"),
+            _user_doc(8, first_name="Blake", last_name="Yellow"),
+            _user_doc(9, first_name="Casey", last_name="Xavier"),
+        ]
+    )
+    await db["attendance"].insert_many(
+        [
+            {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None},
+            {
+                "event_id": 1,
+                "user_id": 8,
+                "status": "checked_in",
+                "checked_in_at": checked_in_at,
+            },
+            {"event_id": 1, "user_id": 9, "status": "going", "checked_in_at": None},
+            {
+                "event_id": 1,
+                "user_id": 9,
+                "status": "cancelled",
+                "checked_in_at": None,
+            },
+            {"event_id": 1, "user_id": 10, "status": "going", "checked_in_at": None},
+        ]
+    )
+
+    _, client = _make_client(db, _auth_user(1))
+    async with client:
+        resp = await client.get("/events/1/attendees")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["event_id"] == 1
+    assert body["event_title"] == "Test Concert"
+    assert body["total_capacity"] == 500
+    assert body["going_count"] == 1
+    assert body["checked_in_count"] == 1
+    assert [attendee["user_id"] for attendee in body["attendees"]] == [8, 7]
+    assert body["attendees"][0]["status"] == "checked_in"
+    assert body["attendees"][0]["checked_in_at"] == "2026-06-15T19:30:00"
+    assert body["attendees"][1]["status"] == "going"
+
+
+@pytest.mark.asyncio
+async def test_get_event_attendees_allows_admin(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, _auth_user(99, roles=["user", "admin"]))
+    async with client:
+        resp = await client.get("/events/1/attendees")
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_get_event_attendees_rejects_non_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.get("/events/1/attendees")
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Organizer or administrator access required"
+
+
+@pytest.mark.asyncio
+async def test_check_in_attendee_updates_attendance_for_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(1))
+    async with client:
+        resp = await client.post("/events/1/attendees/7/check-in")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["event_id"] == 1
+    assert body["user_id"] == 7
+    assert body["status"] == "checked_in"
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "checked_in"
+    assert isinstance(saved["checked_in_at"], datetime)
+
+
+@pytest.mark.asyncio
+async def test_check_in_attendee_rejects_non_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.post("/events/1/attendees/7/check-in")
+
+    assert resp.status_code == 403
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "going"
+
+
+@pytest.mark.asyncio
+async def test_undo_check_in_attendee_updates_attendance_for_admin(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    checked_in_at = datetime(2026, 6, 15, 19, 30, 0)
+    await db["events"].insert_one(event_data)
+    await db["attendance"].insert_one(
+        {
+            "event_id": 1,
+            "user_id": 7,
+            "status": "checked_in",
+            "checked_in_at": checked_in_at,
+        }
+    )
+
+    _, client = _make_client(db, _auth_user(99, roles=["user", "admin"]))
+    async with client:
+        resp = await client.delete("/events/1/attendees/7/check-in")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"event_id": 1, "user_id": 7, "status": "going"}
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "going"
+    assert saved["checked_in_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_undo_check_in_attendee_rejects_non_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    checked_in_at = datetime(2026, 6, 15, 19, 30, 0)
+    await db["events"].insert_one(event_data)
+    await db["attendance"].insert_one(
+        {
+            "event_id": 1,
+            "user_id": 7,
+            "status": "checked_in",
+            "checked_in_at": checked_in_at,
+        }
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.delete("/events/1/attendees/7/check-in")
+
+    assert resp.status_code == 403
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "checked_in"
+    assert saved["checked_in_at"] == checked_in_at
+
+
+@pytest.mark.asyncio
+async def test_remove_attendee_rejects_non_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "registered_count": 1})
+    await db["attendance"].insert_one(
+        {"event_id": 1, "user_id": 7, "status": "going", "checked_in_at": None}
+    )
+    await db["user_calendar_entries"].insert_one(
+        {"event_id": 1, "user_id": 7, "added_at": datetime(2026, 6, 1, 12, 0, 0)}
+    )
+
+    _, client = _make_client(db, _auth_user(7))
+    async with client:
+        resp = await client.delete("/events/1/attendees/7")
+
+    assert resp.status_code == 403
+    saved = await db["attendance"].find_one({"event_id": 1, "user_id": 7})
+    assert saved is not None
+    assert saved["status"] == "going"
+    event = await db["events"].find_one({"id": 1})
+    assert event is not None
+    assert event["registered_count"] == 1
+    calendar_entry = await db["user_calendar_entries"].find_one(
+        {"event_id": 1, "user_id": 7}
+    )
+    assert calendar_entry is not None
 
 
 # -----------------------------------------------------------------------

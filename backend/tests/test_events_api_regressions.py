@@ -41,7 +41,13 @@ def _auth_user(user_id: int = 7) -> AuthSessionUser:
 
 
 async def _clean(db: AsyncDatabase[dict[str, Any]]) -> None:
-    for coll in ("events", "attendance", "event_favorites", "counters"):
+    for coll in (
+        "events",
+        "attendance",
+        "event_favorites",
+        "counters",
+        "event_user_locks",
+    ):
         await db[coll].delete_many({})
 
 
