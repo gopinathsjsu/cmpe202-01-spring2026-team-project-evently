@@ -166,6 +166,13 @@ def _complete_signup_redirect_target(request: Request) -> str:
     return "/complete-signup"
 
 
+def _oauth_callback_url(request: Request) -> str:
+    frontend_origin = get_frontend_settings(request.app).primary_origin
+    if frontend_origin:
+        return str(URL(frontend_origin).replace(path="/api/auth/callback", query=""))
+    return str(request.url_for("auth"))
+
+
 def _string_value(value: object) -> str | None:
     if isinstance(value, str):
         normalized = value.strip()
@@ -875,7 +882,7 @@ async def login(request: Request) -> RedirectResponse:
     request.session[_POST_AUTH_REDIRECT_KEY] = _resolve_redirect_target(request)
     redir = await google_client.authorize_redirect(
         request,
-        str(request.url_for("auth")),
+        _oauth_callback_url(request),
         access_type="offline",
         include_granted_scopes="true",
     )

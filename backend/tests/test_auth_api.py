@@ -269,6 +269,27 @@ async def test_login_redirects_to_google_and_uses_callback_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_login_uses_frontend_proxy_callback_when_frontend_url_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRONTEND_URL", "https://frontend.example.com/app")
+
+    _, client = _make_client(base_url="http://api.example.com")
+    redirect = RedirectResponse(url="https://accounts.google.com/o/oauth2/auth")
+    authorize_redirect = AsyncMock(return_value=redirect)
+    google_client = SimpleNamespace(authorize_redirect=authorize_redirect)
+
+    with patch.object(auth_routes, "get_google_client", return_value=google_client):
+        async with client:
+            resp = await client.get("/auth/login")
+
+    await_args = authorize_redirect.await_args
+    assert resp.status_code == 307
+    assert await_args is not None
+    assert await_args.args[1] == "https://frontend.example.com/api/auth/callback"
+
+
+@pytest.mark.asyncio
 async def test_login_returns_500_when_oauth_does_not_return_redirect() -> None:
     _, client = _make_client(base_url="https://test")
     authorize_redirect = AsyncMock(return_value="not-a-redirect")
