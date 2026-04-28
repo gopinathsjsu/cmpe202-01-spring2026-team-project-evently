@@ -96,3 +96,9 @@
 - email notifications/reminders support
 - AWS deployment POC
 - debugging
+
+## 4/20 - 4/27
+
+- AWS deployment finished
+- event creation 400 bug fixed
+- reviewed + merged functionality for event attendee management
