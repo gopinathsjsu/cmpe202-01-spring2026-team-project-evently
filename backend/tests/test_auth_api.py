@@ -262,6 +262,7 @@ async def test_login_redirects_to_google_and_uses_callback_url() -> None:
     assert await_args.kwargs == {
         "access_type": "offline",
         "include_granted_scopes": "true",
+        "prompt": "select_account",
     }
     set_cookie = resp.headers.get("set-cookie", "")
     assert "evently_session=" in set_cookie

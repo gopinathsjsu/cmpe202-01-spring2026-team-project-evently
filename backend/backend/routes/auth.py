@@ -885,6 +885,7 @@ async def login(request: Request) -> RedirectResponse:
         _oauth_callback_url(request),
         access_type="offline",
         include_granted_scopes="true",
+        prompt="select_account",
     )
     if not isinstance(redir, RedirectResponse):
         raise HTTPException(
