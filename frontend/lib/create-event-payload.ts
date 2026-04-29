@@ -10,8 +10,8 @@ export interface CreateEventFormValues {
   city: string;
   state: string;
   zipCode: string;
-  latitude: string;
-  longitude: string;
+  latitude: number;
+  longitude: number;
 }
 
 export function buildCreateEventPayload(
@@ -29,8 +29,8 @@ export function buildCreateEventPayload(
     image_url: null,
     schedule: [] as EventScheduleEntry[],
     location: {
-      longitude: Number(values.longitude),
-      latitude: Number(values.latitude),
+      longitude: values.longitude,
+      latitude: values.latitude,
       venue_name: values.venueName.trim() || null,
       address: values.address.trim(),
       city: values.city.trim(),
