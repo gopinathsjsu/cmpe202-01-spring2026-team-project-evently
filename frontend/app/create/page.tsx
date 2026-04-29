@@ -13,6 +13,12 @@ import type {
   EventDetail,
 } from "@/lib/types";
 
+type GeocodeResult = {
+  latitude: number;
+  longitude: number;
+  display_name: string | null;
+};
+
 const CATEGORIES: EventCategory[] = [
   "Music",
   "Business",
@@ -48,8 +54,6 @@ export default function CreateEventPage() {
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [zipCode, setZipCode] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,38 +101,46 @@ export default function CreateEventPage() {
       !address.trim() ||
       !city.trim() ||
       !state.trim() ||
-      !zipCode.trim() ||
-      !latitude.trim() ||
-      !longitude.trim()
+      !zipCode.trim()
     ) {
       setError("Please complete the full location details.");
       return;
     }
 
-    const payload = buildCreateEventPayload({
-      title,
-      category,
-      startISO,
-      endISO,
-      venueName,
-      address,
-      city,
-      state,
-      zipCode,
-      latitude,
-      longitude,
-    });
-
-    if (
-      Number.isNaN(payload.location.latitude) ||
-      Number.isNaN(payload.location.longitude)
-    ) {
-      setError("Latitude and longitude must be valid numbers.");
-      return;
-    }
-
     setSubmitting(true);
     try {
+      const params = new URLSearchParams({
+        street: address.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        postalcode: zipCode.trim(),
+      });
+      const coordinates = await apiFetch<GeocodeResult>(
+        `/geocode/?${params.toString()}`,
+      );
+
+      const payload = buildCreateEventPayload({
+        title,
+        category,
+        startISO,
+        endISO,
+        venueName,
+        address,
+        city,
+        state,
+        zipCode,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+      });
+
+      if (
+        !Number.isFinite(payload.location.latitude) ||
+        !Number.isFinite(payload.location.longitude)
+      ) {
+        setError("We could not resolve valid coordinates for this address.");
+        return;
+      }
+
       const created = await apiFetch<EventDetail>("/events/", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -356,39 +368,6 @@ export default function CreateEventPage() {
                     value={zipCode}
                     onChange={(e) => setZipCode(e.target.value)}
                     placeholder="95112"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-5 sm:grid-cols-2">
-                <div>
-                  <label htmlFor="latitude" className={labelClass}>
-                    Latitude*
-                  </label>
-                  <input
-                    id="latitude"
-                    required
-                    inputMode="decimal"
-                    disabled={authLoading || !user}
-                    className={inputClass}
-                    value={latitude}
-                    onChange={(e) => setLatitude(e.target.value)}
-                    placeholder="37.3382"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="longitude" className={labelClass}>
-                    Longitude*
-                  </label>
-                  <input
-                    id="longitude"
-                    required
-                    inputMode="decimal"
-                    disabled={authLoading || !user}
-                    className={inputClass}
-                    value={longitude}
-                    onChange={(e) => setLongitude(e.target.value)}
-                    placeholder="-121.8863"
                   />
                 </div>
               </div>

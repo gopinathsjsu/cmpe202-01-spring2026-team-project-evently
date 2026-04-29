@@ -18,6 +18,7 @@ from backend.db import get_mongo_client
 from backend.routes.auth import router as auth_router
 from backend.routes.contact import router as contact_router
 from backend.routes.events import router as events_router
+from backend.routes.geocode import router as geocode_router
 from backend.routes.users import UPLOAD_DIR
 from backend.routes.users import router as users_router
 from backend.seed import ensure_required_startup_users
@@ -111,6 +112,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(events_router, prefix="/events", tags=["events"])
+    app.include_router(geocode_router, prefix="/geocode", tags=["geocode"])
     app.include_router(users_router, prefix="/users", tags=["users"])
     app.include_router(contact_router, prefix="/contact", tags=["contact"])
     app.include_router(auth_router, prefix="/auth", tags=["auth"])

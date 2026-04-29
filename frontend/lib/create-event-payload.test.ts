@@ -16,8 +16,8 @@ describe("buildCreateEventPayload", () => {
       city: " San Jose ",
       state: " CA ",
       zipCode: " 95112 ",
-      latitude: "37.3382",
-      longitude: "-121.8863",
+      latitude: 37.3382,
+      longitude: -121.8863,
     });
 
     expect(payload.title).toBe("Launch Party");
