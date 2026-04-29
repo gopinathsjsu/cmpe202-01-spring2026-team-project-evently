@@ -1,4 +1,5 @@
 import { getApiBase } from "@/lib/api-base";
+import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 
 // ==========================================================================
 // API CLIENT — Single entry point for all backend requests.
@@ -28,6 +29,54 @@ export class ApiError extends Error {
   }
 }
 
+const BACKEND_URL_KEYS = new Set([
+  "image_url",
+  "event_image_url",
+  "profile_photo_url",
+  "redirect_to",
+]);
+
+function normalizeBackendUrlsInPayload(value: unknown, key?: string): unknown {
+  if (typeof value === "string") {
+    if (key && BACKEND_URL_KEYS.has(key)) {
+      return toBrowserSafeBackendUrl(value);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeBackendUrlsInPayload(item));
+  }
+  if (value && typeof value === "object") {
+    const normalized: Record<string, unknown> = {};
+    for (const [entryKey, entryValue] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      normalized[entryKey] = normalizeBackendUrlsInPayload(entryValue, entryKey);
+    }
+    return normalized;
+  }
+  return value;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function resolveRequestBase(base: string): string {
+  if (typeof window === "undefined" || window.location.protocol !== "https:") {
+    return base;
+  }
+  try {
+    const parsed = new URL(base);
+    if (parsed.protocol === "http:" && !isLoopbackHostname(parsed.hostname)) {
+      return `${window.location.origin}/api`;
+    }
+  } catch {
+    return base;
+  }
+  return base;
+}
+
 /**
  * Thin wrapper around `fetch` that:
  *  - Prefixes the backend base URL
@@ -40,6 +89,7 @@ export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const requestBase = resolveRequestBase(getApiBase());
   const headers = new Headers(init?.headers);
   const isFormData =
     typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -48,7 +98,7 @@ export async function apiFetch<T>(
   }
 
   // TODO [auth]: Inject auth headers here when ready.
-  const res = await fetch(`${getApiBase()}${path}`, {
+  const res = await fetch(`${requestBase}${path}`, {
     credentials: init?.credentials ?? "include",
     ...init,
     headers,
@@ -74,5 +124,6 @@ export async function apiFetch<T>(
     return (await res.text()) as T;
   }
 
-  return res.json() as Promise<T>;
+  const body = (await res.json()) as unknown;
+  return normalizeBackendUrlsInPayload(body) as T;
 }

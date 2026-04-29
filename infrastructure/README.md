@@ -1,62 +1,167 @@
-# Evently – Minimal AWS Infrastructure (CDK)
+# Evently AWS Infrastructure (CDK)
 
-AWS stack: **VPC**, **S3**, **SNS**
+This folder supports a layered deployment:
 
-## Architecture
-![AWS.png](../diagrams/AWS.png)
+1. **Foundation stack**: VPC, S3, SNS, and an **ECR repository** for the backend image
+2. **API stack (optional)**: Internet-facing ALB + Auto Scaling EC2 running the backend container — enabled when you pass `-c apiImageUri=...`
 
-| Resource | File | Purpose |
-|----------|------|---------|
-| **VPC** | `vpc.ts` | Public + private subnets (2 AZs), 1 NAT gateway |
-| **S3** | `s3.ts` | Bucket for event assets; encryption, CORS |
-| **SNS** | `sns.ts` | Topic for notifications (e.g. event alerts) |
-
-
+The API stack imports VPC exports from the foundation stack.
 
 ## Prerequisites
 
-- Node.js version 18+ and npm
-- AWS CLI configured with credentials
+- Node.js 18+
+- AWS CLI configured (`aws configure`)
+- Docker installed locally
+- Backend image pushed to Amazon ECR
+- Required backend secrets saved in AWS SSM Parameter Store
 
-## Deploy
+## Stack overview
+
+| Stack | Created resources |
+|---|---|
+| Foundation (`evently-stack.ts`) | VPC, S3 bucket, SNS topic, ECR repository (`<project>-<env>-backend`) |
+| API (`api-stack.ts`) | ALB, target group, launch template, Auto Scaling Group, scaling policy |
+
+## Frontend (manual)
+
+Hosting (for example **Amplify Console**) is not created by this CDK app. After the API stack deploys, use the **ApiAlbDnsName** output and set **`FRONTEND_URL`** in SSM (see below) to your real site origin (for example `https://main.<id>.amplifyapp.com`) so CORS and OAuth redirects match.
+
+### HTTPS Amplify + HTTP ALB (mixed content)
+
+Browsers block a **secure** Amplify page from calling **`http://`…** on the ALB directly. The app uses same-origin **`/api/...`** and Next.js **rewrites** those to your ALB.
+
+In **Amplify → App → Environment variables** (for the branch that builds), set:
+
+| Variable | Example | Purpose |
+|----------|---------|--------|
+| `BACKEND_PROXY_TARGET` | `http://<ApiAlbDnsName>` | Build-time rewrite target (no trailing slash). Required for `/api` → backend. |
+| `API_INTERNAL_URL` | `http://<ApiAlbDnsName>` | Server-side `fetch` in RSC hits the ALB directly (same URL is fine). |
+
+Do **not** set `NEXT_PUBLIC_API_URL` for Amplify unless you intentionally bypass `/api` (that env wins if set).
+
+Then **redeploy** the Amplify app so `next.config.ts` picks up `BACKEND_PROXY_TARGET` at build time.
+
+On **localhost**, the app still defaults to **`http://localhost:8000`** when `NEXT_PUBLIC_API_URL` is unset. For local use of `/api` rewrites, set `BACKEND_PROXY_TARGET=http://127.0.0.1:8000` as well.
+
+If you connect a Git repo to Amplify, use the root **`amplify.yml`** for the monorepo build (`frontend/`).
+
+## Required SSM parameters
+
+By default, the API EC2 user-data reads these parameters:
+
+- `/<projectName>/<environment>/DATABASE_URL`
+- `/<projectName>/<environment>/SESSION_SECRET_KEY`
+- `/<projectName>/<environment>/FRONTEND_URL`
+- `/<projectName>/<environment>/OAUTH_CLIENT_ID`
+- `/<projectName>/<environment>/OAUTH_CLIENT_SECRET`
+- `/<projectName>/<environment>/ADMIN_EMAILS`
+
+Example for default project and environment:
+
+- `/evently/dev/DATABASE_URL`
+- `/evently/dev/SESSION_SECRET_KEY`
+- `/evently/dev/FRONTEND_URL`
+- `/evently/dev/OAUTH_CLIENT_ID`
+- `/evently/dev/OAUTH_CLIENT_SECRET`
+- `/evently/dev/ADMIN_EMAILS`
+
+## Deploy blueprint (POC)
+
+### 1) Install dependencies and bootstrap
 
 ```bash
-cd infrastructure/cdk
+cd infrastructure
 npm install
-npx cdk bootstrap   # once per account/region
-npx cdk deploy
-
-To destroy: 
-npx cdk destroy
+npx cdk bootstrap
 ```
 
-Outputs: `VpcId`, `S3AssetsBucket`, `SnsTopicArn`
+### 2) Deploy foundation stack only
 
-## Configuration (context)
-
-| Key | Description | Default     |
-|-----|-------------|-------------|
-| `projectName` | Resource naming | `evently`   |
-| `environment` | dev / staging / prod | `dev`       |
-| `awsRegion` | Region | `eu-east-1` |
-| `s3EnableVersioning` | S3 versioning | `false`     |
-
-
-## File layout
-
-```
-infrastructure/
-├── bin/evently.ts       
-├── config.ts        
-├── types.ts         
-├── evently-stack.ts 
-├── vpc.ts           
-├── s3.ts            
-├── sns.ts           
-└── outputs.ts       
-├── cdk.json
-├── package.json
-└── README.md
+```bash
+npx cdk deploy <foundation-stack-name>
 ```
 
+If you did not set custom context, use:
 
+```bash
+npx cdk deploy evently-dev-stack
+```
+
+### 3) Build and push backend image to ECR
+
+After the foundation stack deploys, use the **BackendEcrRepositoryUri** output (or repository name `<project>-<env>-backend`, e.g. `evently-dev-backend`). From the repository root:
+
+```bash
+aws ecr get-login-password --region "$AWS_REGION" \
+| docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+docker build -t evently-backend ./backend
+docker tag evently-backend:latest <account>.dkr.ecr.<region>.amazonaws.com/evently-dev-backend:latest
+docker push <account>.dkr.ecr.<region>.amazonaws.com/evently-dev-backend:latest
+```
+
+### 4) Deploy API stack after foundation
+
+```bash
+npx cdk deploy <api-stack-name> \
+  -c apiImageUri=<account>.dkr.ecr.<region>.amazonaws.com/evently-dev-backend:latest
+```
+
+Default names:
+
+```bash
+npx cdk deploy evently-dev-stack-api \
+  -c apiImageUri=<account>.dkr.ecr.<region>.amazonaws.com/evently-dev-backend:latest
+```
+
+### 5) Configure `DATABASE_URL` for Mongo Atlas (or external MongoDB)
+
+Store a reachable Mongo URI (not localhost) in SSM before rolling API instances:
+
+```bash
+aws ssm put-parameter \
+  --name "/evently/dev/DATABASE_URL" \
+  --type "SecureString" \
+  --value "mongodb+srv://<user>:<password>@<cluster-host>/evently?retryWrites=true&w=majority" \
+  --overwrite
+```
+
+After your frontend URL is known, set **`FRONTEND_URL`** in SSM to that origin (for example your Amplify branch URL). Add your deployed backend callback in Google Cloud OAuth:
+
+- **Authorized redirect URI**: `https://<your-api-domain>/auth/callback` (or `http://...` if you use the ALB DNS over HTTP for a demo)
+- **Authorized JavaScript origin**: your deployed frontend origin
+
+### 6) Optional context tuning
+
+- `-c apiInstanceType=t3.micro`
+- `-c apiMinCapacity=2`
+- `-c apiDesiredCapacity=2`
+- `-c apiMaxCapacity=4`
+- `-c apiHealthCheckPath=/health` (override if you use a custom liveness path)
+- `-c apiStackName=<custom-api-stack-name>`
+
+## Deployment sequencing
+
+- Deploy foundation first so VPC, `VpcCidr`, subnet, and ECR exports exist.
+- Deploy the API stack with `apiImageUri` pointing at your image in the foundation ECR repo.
+
+## Outputs
+
+Foundation stack:
+
+- `VpcId`, `VpcCidr`
+- `S3AssetsBucket`
+- `SnsTopicArn`
+- `BackendEcrRepositoryUri`
+
+API stack:
+
+- `ApiAlbDnsName`
+- `ApiAsgName`
+
+## Notes
+
+- API health checks default to **`/health`** (no database dependency). Override with `-c apiHealthCheckPath=...` if needed.
+- **Redis (`REDIS_URL`)**: optional for serving HTTP. Without it, the API starts but **event email reminders** (Arq) stay disabled; set `REDIS_URL` in the instance environment (for example extend user-data / SSM) when you add ElastiCache or Redis Cloud.
+- If `apiImageUri` is not provided, the API stack is not synthesized.
+- **Mixed content (HTTPS Amplify + HTTP ALB):** set **`BACKEND_PROXY_TARGET`** (see [Frontend (manual)](#frontend-manual)), or terminate TLS on the ALB with a certificate.
+- API EC2 instances are granted `ssm:GetParameter` / `kms:Decrypt` (for SecureString) on `/<project>/<environment>/*` so existing user-data can load secrets.

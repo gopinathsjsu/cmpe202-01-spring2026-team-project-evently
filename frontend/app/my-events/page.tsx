@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
+import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import { useRequireAuth } from "@/lib/auth";
 import type { MyEventItem, MyEventsResponse } from "@/lib/types";
 
@@ -110,7 +111,11 @@ function EventCard({
       <Link href={`/events/${event.id}`} className="flex gap-4 p-4">
         <div className="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-gray-100">
           {event.image_url ? (
-            <img src={event.image_url} alt="" className="h-full w-full object-cover" />
+            <img
+              src={toBrowserSafeBackendUrl(event.image_url)}
+              alt=""
+              className="h-full w-full object-cover"
+            />
           ) : (
             <div className="flex h-full items-center justify-center">
               <TicketIcon className="h-8 w-8 text-gray-300" />

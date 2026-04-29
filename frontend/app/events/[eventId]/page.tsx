@@ -2,7 +2,7 @@ import Image from "next/image";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
-import { apiFetch } from "@/lib/api";
+import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import type { EventDetail, UserDetail } from "@/lib/types";
 import { EventLocationMapLoader } from "./event-location-map-loader";
 import { OrganizerActions } from "./organizer-actions";
@@ -44,6 +44,26 @@ async function buildEventShareUrl(eventId: string): Promise<string> {
   return `${protocol}://${host}/events/${eventId}`;
 }
 
+async function fetchFromSameOriginApi<T>(path: string): Promise<T> {
+  const requestHeaders = await headers();
+  const host =
+    requestHeaders.get("x-forwarded-host") ??
+    requestHeaders.get("host") ??
+    "localhost:3000";
+  const protocol =
+    requestHeaders.get("x-forwarded-proto") ??
+    (host.startsWith("localhost") || host.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
+  const res = await fetch(`${protocol}://${host}/api${path}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`API request failed: ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -58,14 +78,16 @@ export default async function EventDetailPage({
 
   let event: EventDetail;
   try {
-    event = await apiFetch<EventDetail>(`/events/${eventId}`);
+    event = await fetchFromSameOriginApi<EventDetail>(`/events/${eventId}`);
   } catch {
     notFound();
   }
 
   let organizer: UserDetail | null = null;
   try {
-    organizer = await apiFetch<UserDetail>(`/users/${event.organizer_user_id}`);
+    organizer = await fetchFromSameOriginApi<UserDetail>(
+      `/users/${event.organizer_user_id}`,
+    );
   } catch {
     // User endpoint may not have data yet — fall back to ID display
   }
@@ -89,7 +111,7 @@ export default async function EventDetailPage({
             <div className="relative aspect-[16/7] w-full overflow-hidden rounded-xl bg-zinc-200 dark:bg-zinc-800">
               {event.image_url ? (
                 <Image
-                  src={event.image_url}
+                  src={toBrowserSafeBackendUrl(event.image_url)}
                   alt={event.title}
                   fill
                   sizes="(min-width: 1024px) 896px, 100vw"

@@ -36,15 +36,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         await ensure_required_startup_users(app.state.db)
 
-        arq = await create_arq_client()
-        app.state.arq = arq
+        try:
+            arq = await create_arq_client()
+            app.state.arq = arq
+        except Exception:
+            _logger.exception(
+                "Redis/Arq is not reachable; API will run without background "
+                "reminders. Set REDIS_URL (e.g. in SSM for EC2) to enable them."
+            )
+            app.state.arq = None
 
         email_notification_service = create_email_notification_service(
             allow_missing=True
         )
         app.state.email_notification_service = email_notification_service
 
-        await arq.schedule_all_upcoming_event_reminders(app.state.db)
+        if arq is not None:
+            await arq.schedule_all_upcoming_event_reminders(app.state.db)
 
         yield
     finally:
@@ -55,6 +63,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Evently API", lifespan=lifespan)
+
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        """Liveness for load balancers; does not check MongoDB or Redis."""
+        return {"status": "ok"}
+
     app.state.frontend_settings = build_frontend_settings(getenv("FRONTEND_URL"))
     frontend_origin = app.state.frontend_settings.primary_origin or ""
     session_https_only = frontend_origin.startswith("https://")

@@ -6,6 +6,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import Navbar from "@/app/components/navbar";
 import { ApiError, apiFetch } from "@/lib/api";
+import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import { useAuth } from "@/lib/auth";
 
 interface PendingSignupUser {
@@ -140,7 +141,11 @@ export default function CompleteSignupPage() {
         },
       );
 
-      window.location.replace(response.redirect_to || "/profile");
+      if (response.redirect_to) {
+        window.location.replace(toBrowserSafeBackendUrl(response.redirect_to));
+      } else {
+        window.location.replace("/profile");
+      }
     } catch (nextError: unknown) {
       setError(
         getErrorMessage(nextError, "Could not finish creating your account."),

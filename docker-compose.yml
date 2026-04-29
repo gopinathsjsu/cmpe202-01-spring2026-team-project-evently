@@ -44,6 +44,7 @@ services:
     environment:
       MONGODB_HOST: mongodb
       REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: http://localhost:3000
     depends_on:
       mongodb:
         condition: service_healthy
@@ -57,6 +58,7 @@ services:
     environment:
       MONGODB_HOST: mongodb
       REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: http://localhost:3000
     command: ["uv", "run", "notif-worker"]
     depends_on:
       mongodb:
@@ -67,6 +69,7 @@ services:
   frontend:
     build: ./frontend
     environment:
+      BACKEND_PROXY_TARGET: http://backend:8000
       NEXT_PUBLIC_API_URL: http://localhost:8000
       API_INTERNAL_URL: http://backend:8000
     ports:
