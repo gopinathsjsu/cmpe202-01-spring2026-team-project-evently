@@ -191,12 +191,29 @@ function SkeletonCard() {
 
 type Tab = "registered" | "created";
 
+function tabFromSearch(search: string): Tab {
+  const params = new URLSearchParams(search);
+  return params.get("tab") === "created" ? "created" : "registered";
+}
+
 export default function MyEventsPage() {
   const { user, loading: authLoading } = useRequireAuth();
   const [data, setData] = useState<MyEventsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("registered");
+
+  useEffect(() => {
+    function syncTabFromUrl() {
+      setTab(tabFromSearch(window.location.search));
+    }
+
+    syncTabFromUrl();
+    window.addEventListener("popstate", syncTabFromUrl);
+    return () => {
+      window.removeEventListener("popstate", syncTabFromUrl);
+    };
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -225,6 +242,18 @@ export default function MyEventsPage() {
 
   const events = tab === "created" ? data?.created ?? [] : data?.registered ?? [];
   const isLoading = authLoading || loading;
+
+  function handleTabChange(nextTab: Tab) {
+    setTab(nextTab);
+
+    const url = new URL(window.location.href);
+    if (nextTab === "created") {
+      url.searchParams.set("tab", "created");
+    } else {
+      url.searchParams.delete("tab");
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }
 
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
@@ -259,7 +288,7 @@ export default function MyEventsPage() {
             <button
               key={key}
               type="button"
-              onClick={() => setTab(key)}
+              onClick={() => handleTabChange(key)}
               className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition ${
                 tab === key
                   ? "bg-white text-black shadow-sm"

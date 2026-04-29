@@ -144,11 +144,11 @@ export default function CreateEventPage() {
         return;
       }
 
-      const created = await apiFetch<EventDetail>("/events/", {
+      await apiFetch<EventDetail>("/events/", {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      router.push(`/events/${created.id}`);
+      router.push("/my-events?tab=created");
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 401) {
