@@ -64,6 +64,12 @@ export function OrganizerActions({
         <UsersIcon className="h-4 w-4" />
         Manage Attendees
       </Link>
+      <Link
+        href={`/events/${eventId}/edit`}
+        className="mt-3 flex w-full items-center justify-center rounded-lg border border-indigo-200 bg-white px-4 py-2.5 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+      >
+        Edit Event
+      </Link>
       <div className="mt-3">
         <EventImageUploadButton
           eventId={eventId}

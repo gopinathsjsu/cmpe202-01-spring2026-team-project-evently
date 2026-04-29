@@ -1235,6 +1235,67 @@ async def test_upload_event_image_rejects_non_organizer(
 
 
 @pytest.mark.asyncio
+async def test_get_event_for_management_allows_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one({**event_data, "status": "pending"})
+
+    _, client = _make_client(db, auth_user=_auth_user(1))
+    async with client:
+        resp = await client.get("/events/1/manage")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == 1
+    assert body["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_update_event_allows_admin(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, auth_user=_auth_user(99, roles=["user", "admin"]))
+    async with client:
+        resp = await client.patch(
+            "/events/1",
+            json={
+                "title": "Updated Event",
+                "price": 12.5,
+                "total_capacity": 250,
+            },
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["title"] == "Updated Event"
+    assert body["price"] == 12.5
+    assert body["total_capacity"] == 250
+
+    stored = await db["events"].find_one({"id": 1})
+    assert stored is not None
+    assert stored["title"] == "Updated Event"
+
+
+@pytest.mark.asyncio
+async def test_update_event_rejects_non_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, auth_user=_auth_user(2))
+    async with client:
+        resp = await client.patch("/events/1", json={"title": "Nope"})
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Organizer or administrator access required"
+
+
+@pytest.mark.asyncio
 async def test_create_event_auto_increments_id(
     db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
 ) -> None:

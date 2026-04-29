@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
@@ -203,6 +204,12 @@ function EventRow({
 
         {/* Actions */}
         <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <Link
+            href={`/events/${event.id}/edit`}
+            className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            Edit
+          </Link>
           <EventImageUploadButton
             eventId={event.id}
             className="inline-flex cursor-pointer items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"

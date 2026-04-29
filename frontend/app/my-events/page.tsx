@@ -167,6 +167,12 @@ function EventCard({
       )}
       {showManageLink && (
         <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 px-4 py-2">
+          <Link
+            href={`/events/${event.id}/edit`}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+          >
+            Edit Event
+          </Link>
           {eventIsPublic && (
             <Link
               href={`/events/${event.id}/attendees`}
