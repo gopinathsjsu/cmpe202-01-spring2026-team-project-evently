@@ -28,6 +28,9 @@ if (typeof apiImageUri === 'string' && apiImageUri.trim()) {
   const apiStackName = app.node.tryGetContext('apiStackName') ?? `${config.stackName}-api`;
   const instanceType = app.node.tryGetContext('apiInstanceType') ?? 't3.micro';
   const healthCheckPath = app.node.tryGetContext('apiHealthCheckPath') ?? '/health';
+  const enableNotificationWorker =
+    app.node.tryGetContext('enableNotificationWorker') !== 'false';
+  const valkeyNodeType = app.node.tryGetContext('valkeyNodeType') ?? 'cache.t4g.micro';
   const parseCapacity = (value: unknown, fallback: number): number => {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -55,6 +58,8 @@ if (typeof apiImageUri === 'string' && apiImageUri.trim()) {
     desiredCapacity,
     maxCapacity,
     healthCheckPath,
+    enableNotificationWorker,
+    valkeyNodeType,
   });
 } else {
   // Keeps existing one-stack behavior for teams not deploying API yet.

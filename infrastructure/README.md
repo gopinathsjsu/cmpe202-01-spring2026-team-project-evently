@@ -3,7 +3,7 @@
 This folder supports a layered deployment:
 
 1. **Foundation stack**: VPC, S3, SNS, and an **ECR repository** for the backend image
-2. **API stack (optional)**: Internet-facing ALB + Auto Scaling EC2 running the backend container — enabled when you pass `-c apiImageUri=...`
+2. **API stack (optional)**: Internet-facing ALB + Auto Scaling EC2 running the backend container, a managed Valkey queue, and notification workers — enabled when you pass `-c apiImageUri=...`
 
 The API stack imports VPC exports from the foundation stack.
 
@@ -20,7 +20,17 @@ The API stack imports VPC exports from the foundation stack.
 | Stack | Created resources |
 |---|---|
 | Foundation (`evently-stack.ts`) | VPC, S3 bucket, SNS topic, ECR repository (`<project>-<env>-backend`) |
-| API (`api-stack.ts`) | ALB, target group, launch template, Auto Scaling Group, scaling policy |
+| API (`api-stack.ts`) | ALB, target group, launch template, Auto Scaling Group, scaling policy, ElastiCache Valkey replication group |
+
+## Background workers and Redis/Valkey
+
+The backend uses `arq` plus Redis-compatible storage for event reminder jobs. In local development, `just dev` starts Redis and a separate `notif-worker` process. In AWS, the API stack mirrors that shape:
+
+- API EC2 instances run the backend web container.
+- Each API EC2 instance also runs a `notif-worker` container from the same backend image.
+- All API and worker containers share one private ElastiCache Valkey replication group through `REDIS_URL`.
+
+The default cache node is `cache.t4g.micro`, the smallest selected managed node option for this project. It is shared across multiple EC2 instances, but it is not highly available because the stack creates one primary node and no replicas to keep cost down. Add replicas later if this becomes production infrastructure.
 
 ## Frontend (manual)
 
@@ -56,6 +66,12 @@ By default, the API EC2 user-data reads these parameters:
 - `/<projectName>/<environment>/OAUTH_CLIENT_SECRET`
 - `/<projectName>/<environment>/ADMIN_EMAILS`
 
+The API stack also tries to read this optional parameter:
+
+- `/<projectName>/<environment>/RESEND_API_KEY`
+
+If `RESEND_API_KEY` is missing, EC2 boot continues and the backend logs that email notifications are disabled.
+
 Example for default project and environment:
 
 - `/evently/dev/DATABASE_URL`
@@ -64,6 +80,7 @@ Example for default project and environment:
 - `/evently/dev/OAUTH_CLIENT_ID`
 - `/evently/dev/OAUTH_CLIENT_SECRET`
 - `/evently/dev/ADMIN_EMAILS`
+- `/evently/dev/RESEND_API_KEY` (optional)
 
 ## Deploy blueprint (POC)
 
@@ -138,6 +155,8 @@ After your frontend URL is known, set **`FRONTEND_URL`** in SSM to that origin (
 - `-c apiMaxCapacity=4`
 - `-c apiHealthCheckPath=/health` (override if you use a custom liveness path)
 - `-c apiStackName=<custom-api-stack-name>`
+- `-c enableNotificationWorker=true` (set to `false` to skip the worker and Valkey queue)
+- `-c valkeyNodeType=cache.t4g.micro`
 
 ## Deployment sequencing
 
@@ -157,11 +176,14 @@ API stack:
 
 - `ApiAlbDnsName`
 - `ApiAsgName`
+- `ValkeyEndpoint`
+- `ValkeyPort`
 
 ## Notes
 
 - API health checks default to **`/health`** (no database dependency). Override with `-c apiHealthCheckPath=...` if needed.
-- **Redis (`REDIS_URL`)**: optional for serving HTTP. Without it, the API starts but **event email reminders** (Arq) stay disabled; set `REDIS_URL` in the instance environment (for example extend user-data / SSM) when you add ElastiCache or Redis Cloud.
+- **Redis/Valkey (`REDIS_URL`)**: the API stack creates a private ElastiCache Valkey replication group by default when notification workers are enabled and writes `REDIS_URL` into the container environment. HTTP serving can still run without it if you deploy with `-c enableNotificationWorker=false`, but event email reminders stay disabled.
+- The default Valkey replication group is a single `cache.t4g.micro` primary node for cost control. It supports multiple EC2 instances sharing one queue, but it is not HA.
 - If `apiImageUri` is not provided, the API stack is not synthesized.
 - **Mixed content (HTTPS Amplify + HTTP ALB):** set **`BACKEND_PROXY_TARGET`** (see [Frontend (manual)](#frontend-manual)), or terminate TLS on the ALB with a certificate.
 - API EC2 instances are granted `ssm:GetParameter` / `kms:Decrypt` (for SecureString) on `/<project>/<environment>/*` so existing user-data can load secrets.
