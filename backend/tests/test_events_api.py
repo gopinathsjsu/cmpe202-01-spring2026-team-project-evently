@@ -1,4 +1,6 @@
 from datetime import datetime
+from io import BytesIO
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -1161,6 +1163,75 @@ async def test_create_event(
     assert stored["organizer_user_id"] == 1
     assert stored["registered_count"] == 0
     assert stored["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_upload_event_image_allows_organizer(
+    db: AsyncDatabase[dict[str, Any]],
+    event_data: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _clean(db)
+    monkeypatch.setattr(events_route, "UPLOAD_DIR", str(tmp_path))
+    await db["events"].insert_one({**event_data, "organizer_user_id": 7})
+
+    _, client = _make_client(db, auth_user=_auth_user(7))
+    async with client:
+        resp = await client.post(
+            "/events/1/image",
+            files={"file": ("banner.png", BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+        )
+
+    assert resp.status_code == 200
+    image_url = resp.json()["image_url"]
+    assert image_url.startswith("/uploads/event_1_")
+    assert image_url.endswith(".png")
+    assert (tmp_path / image_url.rsplit("/", 1)[-1]).exists()
+
+    stored = await db["events"].find_one({"id": 1})
+    assert stored is not None
+    assert stored["image_url"] == image_url
+
+
+@pytest.mark.asyncio
+async def test_upload_event_image_allows_admin(
+    db: AsyncDatabase[dict[str, Any]],
+    event_data: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _clean(db)
+    monkeypatch.setattr(events_route, "UPLOAD_DIR", str(tmp_path))
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, auth_user=_auth_user(99, roles=["user", "admin"]))
+    async with client:
+        resp = await client.post(
+            "/events/1/image",
+            files={"file": ("banner.jpg", BytesIO(b"fake-jpeg"), "image/jpeg")},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["image_url"].startswith("/uploads/event_1_")
+
+
+@pytest.mark.asyncio
+async def test_upload_event_image_rejects_non_organizer(
+    db: AsyncDatabase[dict[str, Any]], event_data: dict[str, Any]
+) -> None:
+    await _clean(db)
+    await db["events"].insert_one(event_data)
+
+    _, client = _make_client(db, auth_user=_auth_user(2))
+    async with client:
+        resp = await client.post(
+            "/events/1/image",
+            files={"file": ("banner.png", BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
+        )
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Organizer or administrator access required"
 
 
 @pytest.mark.asyncio

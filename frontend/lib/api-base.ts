@@ -178,6 +178,9 @@ export function toBrowserSafeBackendUrl(url: string): string {
     }
     return parsed.toString();
   } catch {
+    if (trimmed.startsWith(`${API_PROXY_PREFIX}/`)) {
+      return trimmed;
+    }
     const normalizedPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
     return `${API_PROXY_PREFIX}${normalizedPath}`;
   }

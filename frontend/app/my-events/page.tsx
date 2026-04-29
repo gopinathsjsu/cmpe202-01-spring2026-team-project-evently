@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { EventImageUploadButton } from "@/app/components/event-image-upload-button";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
 import { toBrowserSafeBackendUrl } from "@/lib/api-base";
@@ -100,9 +101,11 @@ function PlusIcon({ className }: { className?: string }) {
 function EventCard({
   event,
   showManageLink,
+  onImageUploaded,
 }: {
   event: MyEventItem;
   showManageLink?: boolean;
+  onImageUploaded?: (imageUrl: string) => void;
 }) {
   const badge = statusBadge(event.status);
   const eventIsPublic = event.status === null || event.status === "approved";
@@ -162,15 +165,22 @@ function EventCard({
       ) : (
         <div aria-disabled="true">{content}</div>
       )}
-      {showManageLink && eventIsPublic && (
-        <div className="flex items-center justify-end border-t border-gray-100 px-4 py-2">
-          <Link
-            href={`/events/${event.id}/attendees`}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
-          >
-            <UsersIcon className="h-3.5 w-3.5" />
-            Manage Attendees ({event.attending_count})
-          </Link>
+      {showManageLink && (
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 px-4 py-2">
+          {eventIsPublic && (
+            <Link
+              href={`/events/${event.id}/attendees`}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+            >
+              <UsersIcon className="h-3.5 w-3.5" />
+              Manage Attendees ({event.attending_count})
+            </Link>
+          )}
+          <EventImageUploadButton
+            eventId={event.id}
+            className="inline-flex cursor-pointer items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
+            onUploaded={onImageUploaded}
+          />
         </div>
       )}
     </div>
@@ -264,6 +274,20 @@ export default function MyEventsPage() {
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
 
+  function updateEventImage(eventId: number, imageUrl: string) {
+    setData((current) => {
+      if (!current) return current;
+
+      const update = (event: MyEventItem): MyEventItem =>
+        event.id === eventId ? { ...event, image_url: imageUrl } : event;
+
+      return {
+        created: current.created.map(update),
+        registered: current.registered.map(update),
+      };
+    });
+  }
+
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
       <Navbar />
@@ -348,7 +372,12 @@ export default function MyEventsPage() {
         ) : (
           <div className="space-y-3">
             {events.map((event) => (
-              <EventCard key={event.id} event={event} showManageLink={tab === "created"} />
+              <EventCard
+                key={event.id}
+                event={event}
+                showManageLink={tab === "created"}
+                onImageUploaded={(imageUrl) => updateEventImage(event.id, imageUrl)}
+              />
             ))}
           </div>
         )}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
+import { EventImageUploadButton } from "@/app/components/event-image-upload-button";
 import Navbar from "@/app/components/navbar";
 import { ApiError, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -140,11 +141,19 @@ interface EventRowProps {
   event: PendingEventListItem;
   onApprove: (id: number) => void;
   onReject: (id: number) => void;
+  onImageUploaded: (id: number, imageUrl: string) => void;
   actionError: string | null;
   actionPending: boolean;
 }
 
-function EventRow({ event, onApprove, onReject, actionError, actionPending }: EventRowProps) {
+function EventRow({
+  event,
+  onApprove,
+  onReject,
+  onImageUploaded,
+  actionError,
+  actionPending,
+}: EventRowProps) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5 transition-shadow hover:shadow-sm">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -193,7 +202,12 @@ function EventRow({ event, onApprove, onReject, actionError, actionPending }: Ev
         </div>
 
         {/* Actions */}
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <EventImageUploadButton
+            eventId={event.id}
+            className="inline-flex cursor-pointer items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            onUploaded={(imageUrl) => onImageUploaded(event.id, imageUrl)}
+          />
           <button
             type="button"
             disabled={actionPending}
@@ -312,6 +326,14 @@ export default function AdminPendingEventsPage() {
     }
   }
 
+  function handleImageUploaded(id: number, imageUrl: string) {
+    setEvents((current) =>
+      current.map((event) =>
+        event.id === id ? { ...event, image_url: imageUrl } : event,
+      ),
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Access guard
   // ---------------------------------------------------------------------------
@@ -411,6 +433,7 @@ export default function AdminPendingEventsPage() {
                 event={event}
                 onApprove={handleApprove}
                 onReject={handleReject}
+                onImageUploaded={handleImageUploaded}
                 actionPending={actionStates[event.id]?.pending ?? false}
                 actionError={actionStates[event.id]?.error ?? null}
               />
