@@ -1,3 +1,4 @@
+import asyncio
 import os
 from typing import Annotated, Any
 
@@ -29,6 +30,62 @@ def _clean_required(value: str, field_name: str) -> str:
     if not cleaned:
         raise HTTPException(status_code=422, detail=f"{field_name} is required")
     return cleaned
+
+
+def _clean_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _freeform_query(*parts: str) -> str:
+    return ", ".join(part for part in parts if part)
+
+
+def _geocode_candidates(
+    *,
+    venue_name: str | None,
+    street: str,
+    city: str,
+    state: str,
+    postalcode: str,
+) -> list[dict[str, str]]:
+    common = {
+        "countrycodes": "us",
+        "format": "jsonv2",
+        "addressdetails": "1",
+        "limit": "1",
+    }
+    city_state_postal = _freeform_query(city, f"{state} {postalcode}".strip())
+
+    candidates: list[dict[str, str]] = []
+    if venue_name:
+        candidates.append(
+            {
+                **common,
+                "q": _freeform_query(venue_name, city_state_postal),
+            }
+        )
+
+    candidates.append(
+        {
+            **common,
+            "street": street,
+            "city": city,
+            "state": state,
+            "postalcode": postalcode,
+            "country": "United States",
+        }
+    )
+    candidates.append(
+        {
+            **common,
+            "q": _freeform_query(street, city_state_postal),
+        }
+    )
+
+    return candidates
 
 
 async def _search_nominatim(params: dict[str, str]) -> list[dict[str, Any]]:
@@ -85,23 +142,23 @@ async def geocode_address(
     city: Annotated[str, Query(min_length=1)],
     state: Annotated[str, Query(min_length=1)],
     postalcode: Annotated[str, Query(min_length=1)],
+    venue_name: str | None = None,
 ) -> GeocodeResult:
     """Resolve a user-entered event address to coordinates."""
-    params = {
-        "street": _clean_required(street, "Street address"),
-        "city": _clean_required(city, "City"),
-        "state": _clean_required(state, "State"),
-        "postalcode": _clean_required(postalcode, "ZIP code"),
-        "country": "United States",
-        "countrycodes": "us",
-        "format": "jsonv2",
-        "addressdetails": "1",
-        "limit": "1",
-    }
+    candidates = _geocode_candidates(
+        venue_name=_clean_optional(venue_name),
+        street=_clean_required(street, "Street address"),
+        city=_clean_required(city, "City"),
+        state=_clean_required(state, "State"),
+        postalcode=_clean_required(postalcode, "ZIP code"),
+    )
 
-    for place in await _search_nominatim(params):
-        if result := _result_from_place(place):
-            return result
+    for index, params in enumerate(candidates):
+        if index > 0:
+            await asyncio.sleep(1.05)
+        for place in await _search_nominatim(params):
+            if result := _result_from_place(place):
+                return result
 
     raise HTTPException(
         status_code=404,

@@ -78,6 +78,51 @@ async def test_geocode_address_returns_first_nominatim_match(
 
 
 @pytest.mark.asyncio
+async def test_geocode_address_prefers_venue_query_when_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_params: dict[str, str] = {}
+
+    async def fake_search_nominatim(params: dict[str, str]) -> list[dict[str, Any]]:
+        captured_params.update(params)
+        return [
+            {
+                "lat": "37.3351903",
+                "lon": "-121.8812250",
+                "display_name": "San José State University Main Campus",
+            }
+        ]
+
+    monkeypatch.setattr(geocode_routes, "_search_nominatim", fake_search_nominatim)
+
+    async with _make_client() as client:
+        resp = await client.get(
+            "/geocode/",
+            params={
+                "venue_name": " San Jose State University ",
+                "street": " 1 Washington Sq ",
+                "city": " San Jose ",
+                "state": " CA ",
+                "postalcode": " 95192 ",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "latitude": 37.3351903,
+        "longitude": -121.881225,
+        "display_name": "San José State University Main Campus",
+    }
+    assert captured_params == {
+        "q": "San Jose State University, San Jose, CA 95192",
+        "countrycodes": "us",
+        "format": "jsonv2",
+        "addressdetails": "1",
+        "limit": "1",
+    }
+
+
+@pytest.mark.asyncio
 async def test_geocode_address_returns_404_when_address_cannot_be_resolved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

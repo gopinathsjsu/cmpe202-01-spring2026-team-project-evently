@@ -115,6 +115,9 @@ export default function CreateEventPage() {
         state: state.trim(),
         postalcode: zipCode.trim(),
       });
+      if (venueName.trim()) {
+        params.set("venue_name", venueName.trim());
+      }
       const coordinates = await apiFetch<GeocodeResult>(
         `/geocode/?${params.toString()}`,
       );
