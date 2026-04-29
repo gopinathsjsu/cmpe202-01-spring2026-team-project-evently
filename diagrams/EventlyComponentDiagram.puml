@@ -1,0 +1,149 @@
+@startuml
+title Evently UML Component Diagram
+
+left to right direction
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam ArrowColor #2F4858
+skinparam ComponentBorderColor #2F4858
+skinparam ComponentBackgroundColor #F7FBFC
+skinparam DatabaseBackgroundColor #FFF8E8
+skinparam DatabaseBorderColor #8C6D1F
+skinparam NodeBackgroundColor #F4F6FA
+skinparam NodeBorderColor #52616B
+skinparam QueueBackgroundColor #F3F1FF
+skinparam QueueBorderColor #6E56CF
+skinparam CloudBackgroundColor #F6FAF5
+skinparam CloudBorderColor #4D7C0F
+
+actor "Web User\nAttendee / Organizer / Admin" as WebUser
+
+node "Next.js Frontend\nReact 19 / App Router" as Frontend {
+  component "Route Pages" as RoutePages
+  component "Auth Redirect Routes\n/signin /signup /logout" as AuthRedirectRoutes
+  component "API Client\nlib/api.ts" as ApiClient
+  component "API Base Resolver\nlib/api-base.ts" as ApiBase
+  component "Same-Origin API Rewrite\n/api/* -> backend" as ApiRewrite
+}
+
+node "FastAPI Backend\nUvicorn / Starlette" as Backend {
+  component "FastAPI App\nbackend.api:create_app" as FastApiApp
+  component "Auth Router\n/auth" as AuthRouter
+  component "Events Router\n/events" as EventsRouter
+  component "Users Router\n/users" as UsersRouter
+  component "Contact Router\n/contact" as ContactRouter
+  component "Mongo DB Dependency" as DbDependency
+  component "Calendar Sync Service" as CalendarSync
+  component "Email Notification Service" as EmailService
+  component "ARQ Scheduler" as ArqScheduler
+  component "Static Uploads\n/uploads" as StaticUploads
+}
+
+database "MongoDB\nDatabase: evently" as MongoDb {
+  component "users" as UsersCollection
+  component "events" as EventsCollection
+  component "attendance" as AttendanceCollection
+  component "event_favorites" as FavoritesCollection
+  component "oauth_tokens" as OAuthTokensCollection
+  component "user_calendar_entries" as CalendarEntriesCollection
+  component "contact_submissions" as ContactCollection
+  component "counters / locks" as OperationalCollections
+}
+
+queue "Redis\nARQ Job Queue" as RedisQueue
+
+node "Notification Worker\nnotif-worker" as WorkerNode {
+  component "Worker Settings" as WorkerSettings
+  component "send_event_reminder Job" as ReminderJob
+}
+
+cloud "External Services" as ExternalServices {
+  component "Google OAuth 2.0" as GoogleOAuth
+  component "Google Calendar API" as GoogleCalendar
+  component "Resend Email API" as ResendEmail
+}
+
+package "Runtime / Deployment" as RuntimeDeployment {
+  component "Docker Compose\nlocal stack" as DockerCompose
+  component "AWS CDK\ninfrastructure/" as AwsCdk
+  component "Application Load Balancer" as Alb
+  component "EC2 Backend Container" as Ec2Backend
+  component "ECR Backend Image Repo" as EcrRepo
+  component "SSM Parameters\nsecrets + config" as SsmParams
+  component "S3 Assets Bucket" as S3Assets
+  component "SNS Topic" as SnsTopic
+}
+
+WebUser --> RoutePages : uses
+WebUser --> AuthRedirectRoutes : signs in / out
+
+RoutePages --> ApiClient : browser + RSC fetches
+AuthRedirectRoutes --> ApiRewrite : redirects OAuth flow
+ApiClient --> ApiBase : resolves API origin
+ApiBase --> ApiRewrite : HTTPS deployment fallback
+ApiRewrite --> FastApiApp : proxies /api/*
+ApiClient --> FastApiApp : direct local HTTP\nlocalhost:8000
+
+FastApiApp --> AuthRouter : includes /auth
+FastApiApp --> EventsRouter : includes /events
+FastApiApp --> UsersRouter : includes /users
+FastApiApp --> ContactRouter : includes /contact
+FastApiApp --> StaticUploads : serves uploaded photos
+
+AuthRouter --> GoogleOAuth : authorize / callback
+AuthRouter --> OAuthTokensCollection : encrypted OAuth tokens
+AuthRouter --> UsersCollection : create or resolve user
+
+EventsRouter --> EventsCollection : create / list / approve
+EventsRouter --> AttendanceCollection : RSVP / check-in
+EventsRouter --> FavoritesCollection : favorite events
+EventsRouter --> CalendarEntriesCollection : app calendar entries
+EventsRouter --> CalendarSync : Google calendar mutations
+EventsRouter --> ArqScheduler : schedule reminders
+EventsRouter --> EmailService : confirmation emails
+
+UsersRouter --> UsersCollection : profile data
+UsersRouter --> EventsCollection : created events
+UsersRouter --> AttendanceCollection : registered events
+UsersRouter --> CalendarEntriesCollection : user calendar
+UsersRouter --> CalendarSync : sync / unsync Google
+UsersRouter --> StaticUploads : profile photos
+
+ContactRouter --> ContactCollection : support requests
+
+DbDependency --> MongoDb : AsyncMongoClient
+CalendarSync --> GoogleCalendar : create / delete events
+EmailService --> ResendEmail : send email
+ArqScheduler --> RedisQueue : enqueue reminder jobs
+
+WorkerSettings --> RedisQueue : consumes ARQ jobs
+WorkerSettings --> MongoDb : reads users/events/attendance
+WorkerSettings --> EmailService : sends reminders
+ReminderJob --> WorkerSettings : registered function
+
+DockerCompose ..> Frontend : starts frontend:3000
+DockerCompose ..> Backend : starts backend:8000
+DockerCompose ..> MongoDb : starts mongodb:27017
+DockerCompose ..> RedisQueue : starts redis:6379
+DockerCompose ..> WorkerNode : starts notif-worker
+
+AwsCdk ..> EcrRepo : provisions
+AwsCdk ..> Alb : provisions
+AwsCdk ..> Ec2Backend : provisions
+AwsCdk ..> SsmParams : reads backend env
+AwsCdk ..> S3Assets : provisions
+AwsCdk ..> SnsTopic : provisions
+Alb --> Ec2Backend : HTTP /health + API traffic
+Ec2Backend --> Backend : runs container image
+Ec2Backend --> EcrRepo : pulls backend image
+Ec2Backend --> SsmParams : loads DATABASE_URL,\nSESSION_SECRET_KEY,\nOAuth config
+
+legend right
+  Solid arrows: runtime calls or data access
+  Dotted arrows: orchestration or provisioning
+endlegend
+
+@enduml

@@ -1,0 +1,128 @@
+@startuml
+title Evently UML Deployment Diagram
+
+left to right direction
+
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+skinparam ArrowColor #2F4858
+skinparam NodeBorderColor #2F4858
+skinparam NodeBackgroundColor #F7FBFC
+skinparam DatabaseBackgroundColor #FFF8E8
+skinparam DatabaseBorderColor #8C6D1F
+skinparam QueueBackgroundColor #F3F1FF
+skinparam QueueBorderColor #6E56CF
+skinparam CloudBackgroundColor #F6FAF5
+skinparam CloudBorderColor #4D7C0F
+skinparam ArtifactBackgroundColor #FFFFFF
+skinparam ArtifactBorderColor #52616B
+
+actor "User" as User
+
+node "Developer Machine" as DevMachine {
+  node "Browser" as Browser {
+    artifact "Evently Web UI\nhttp://localhost:3000" as BrowserUi
+  }
+
+  node "Docker Engine\ncompose project: evently" as DockerEngine {
+    node "frontend container\nnode:20-alpine" as FrontendContainer {
+      artifact "Next.js app\npnpm exec next dev\nport 3000" as FrontendApp
+      artifact "API env\nNEXT_PUBLIC_API_URL=http://localhost:8000\nAPI_INTERNAL_URL=http://backend:8000" as FrontendEnv
+    }
+
+    node "backend container\npython:3.13-slim" as BackendContainer {
+      artifact "FastAPI app\nuv run backend\nport 8000" as BackendApp
+      artifact "entrypoint.sh\nbuild DATABASE_URL\nseed database\nstart server" as BackendEntrypoint
+      artifact "backend/.env\nOAuth, session, DB,\nadmin, email config" as BackendEnv
+    }
+
+    node "notif-worker container\npython:3.13-slim" as WorkerContainer {
+      artifact "ARQ worker\nuv run notif-worker" as WorkerApp
+    }
+
+    database "mongodb container\nmongo:8.2.5\nport 27017" as MongoContainer {
+      artifact "mongodb_data volume\n/data/db" as MongoVolume
+    }
+
+    queue "redis container\nredis:8.6.2\nport 6379" as RedisContainer {
+      artifact "redis_data volume\nappendonly yes" as RedisVolume
+    }
+  }
+}
+
+cloud "External SaaS APIs" as ExternalSaas {
+  node "Google Identity Platform" as GoogleIdentity
+  node "Google Calendar API" as GoogleCalendar
+  node "Resend Email API" as ResendApi
+}
+
+cloud "AWS Account\nCDK foundation stack" as AwsAccount {
+  node "VPC\nevently-dev-vpc\n2 AZs" as AwsVpc {
+    node "Public Subnets" as PublicSubnets
+    node "Private Subnets\nwith egress" as PrivateSubnets
+    node "NAT Gateway" as NatGateway
+  }
+
+  node "S3 Bucket\nevently-dev-assets-<account>" as S3Bucket {
+    artifact "Event assets / uploads\nS3 managed encryption\nCORS enabled" as S3Artifacts
+  }
+
+  queue "SNS Topic\nevently-dev-evently-notifications" as SnsTopic
+}
+
+node "Local Development\nwithout Docker" as LocalDev {
+  artifact "just backend\nMongoDB + Redis + seed + API + worker" as JustBackend
+  artifact "just frontend\npnpm dev" as JustFrontend
+}
+
+User --> BrowserUi : HTTPS/HTTP page requests
+BrowserUi --> FrontendApp : renders React UI
+BrowserUi --> BackendApp : browser API calls\nhttp://localhost:8000
+FrontendApp --> BackendApp : server-side fetches\nhttp://backend:8000
+
+BackendEntrypoint --> BackendApp : starts
+BackendEnv --> BackendEntrypoint : DB_USERNAME,\nDB_PASSWORD,\nREDIS_URL
+FrontendEnv --> FrontendApp : API base URLs
+
+BackendApp --> MongoContainer : DATABASE_URL\nmongodb://mongodb:27017
+BackendApp --> RedisContainer : REDIS_URL\nredis://redis:6379/0
+BackendApp --> GoogleIdentity : OAuth sign-in / callback
+BackendApp --> GoogleCalendar : calendar sync
+BackendApp --> ResendApi : confirmation emails
+
+BackendApp --> RedisContainer : enqueue reminder jobs
+WorkerApp --> RedisContainer : consume ARQ jobs
+WorkerApp --> MongoContainer : load events,\nattendance, users
+WorkerApp --> ResendApi : reminder emails
+
+MongoContainer --> MongoVolume : persists data
+RedisContainer --> RedisVolume : persists queue state
+
+FrontendContainer ..> BackendContainer : depends_on backend
+BackendContainer ..> MongoContainer : depends_on healthy
+BackendContainer ..> RedisContainer : depends_on healthy
+WorkerContainer ..> MongoContainer : depends_on healthy
+WorkerContainer ..> RedisContainer : depends_on healthy
+
+JustBackend ..> BackendApp : equivalent local process path
+JustFrontend ..> FrontendApp : equivalent local frontend path
+
+AwsVpc ..> PublicSubnets : provisioned by CDK
+AwsVpc ..> PrivateSubnets : provisioned by CDK
+PrivateSubnets --> NatGateway : outbound internet egress
+AwsAccount ..> S3Bucket : stack output S3AssetsBucket
+AwsAccount ..> SnsTopic : stack output SnsTopicArn
+
+note right of AwsAccount
+  Current CDK code provisions the AWS foundation
+  resources. The Docker Compose stack is the concrete
+  app runtime defined in this repository.
+end note
+
+legend right
+  Solid arrows: runtime network calls or persistence
+  Dotted arrows: deployment ordering or provisioning
+endlegend
+
+@enduml
