@@ -28,6 +28,7 @@ const nextConfig: NextConfig = {
       // which browsers block as mixed content on HTTPS Amplify pages.
       { source: "/api/events", destination: `${target}/events/` },
       { source: "/api/contact", destination: `${target}/contact/` },
+      { source: "/api/geocode", destination: `${target}/geocode/` },
       { source: "/api/:path*", destination: `${target}/:path*` },
     ];
   },
