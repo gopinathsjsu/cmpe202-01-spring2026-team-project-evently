@@ -74,4 +74,9 @@ describe("api-base toBrowserSafeBackendUrl", () => {
     const { toBrowserSafeBackendUrl } = await import("./api-base");
     expect(toBrowserSafeBackendUrl("/uploads/a.png")).toBe("/api/uploads/a.png");
   });
+
+  it("keeps already proxied backend paths unchanged", async () => {
+    const { toBrowserSafeBackendUrl } = await import("./api-base");
+    expect(toBrowserSafeBackendUrl("/api/uploads/a.png")).toBe("/api/uploads/a.png");
+  });
 });

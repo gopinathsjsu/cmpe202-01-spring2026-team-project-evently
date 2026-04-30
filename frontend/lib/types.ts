@@ -88,6 +88,23 @@ export interface EventDetail {
 
 export type EventStatus = "pending" | "approved" | "rejected";
 
+export interface EventManageDetail extends EventDetail {
+  status: EventStatus;
+}
+
+export interface EventUpdatePayload {
+  title?: string;
+  about?: string;
+  price?: number;
+  total_capacity?: number;
+  start_time?: string;
+  end_time?: string;
+  category?: EventCategory;
+  is_online?: boolean;
+  schedule?: EventScheduleEntry[];
+  location?: Location;
+}
+
 export interface PendingEventListItem {
   id: number;
   title: string;
@@ -96,6 +113,7 @@ export interface PendingEventListItem {
   end_time: string;
   price: number;
   is_online: boolean;
+  image_url: string | null;
   location: { venue_name: string | null; city: string; state: string };
   organizer_user_id: number;
   total_capacity: number;

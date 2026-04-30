@@ -1,10 +1,12 @@
 import logging
+import os
 import re
+import uuid
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
@@ -48,6 +50,10 @@ USER_CALENDAR_SYNC_COLLECTION = "user_calendar_syncs"
 EVENT_USER_LOCK_COLLECTION = "event_user_locks"
 EVENT_USER_LOCK_STALE_AFTER = timedelta(minutes=5)
 CALENDAR_REMOVAL_STARTED_AT_FIELD = "removal_started_at"
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+ALLOWED_EVENT_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif"}
+ALLOWED_EVENT_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
+MAX_EVENT_IMAGE_SIZE = 5 * 1024 * 1024
 ArqDep = Annotated[ArqClient, Depends(get_arq)]
 EmailNotifDep = Annotated[EmailNotificationService, Depends(get_email_notif_service)]
 
@@ -129,6 +135,20 @@ class EventDetail(BaseModel):
         )
 
 
+class EventManageDetail(EventDetail):
+    status: EventStatus
+
+    @classmethod
+    def from_event(
+        cls, event: Event, *, attending_count: int, favorites_count: int
+    ) -> "EventManageDetail":
+        return cls(
+            **event.model_dump(),
+            attending_count=attending_count,
+            favorites_count=favorites_count,
+        )
+
+
 class FavoriteAddResponse(BaseModel):
     event_id: int
     user_id: int
@@ -187,6 +207,7 @@ class PendingEventListItem(BaseModel):
     category: EventCategory
     status: Literal["pending"]
     is_online: bool
+    image_url: str | None
     location: LocationSummary
 
     @classmethod
@@ -203,6 +224,7 @@ class PendingEventListItem(BaseModel):
             category=event.category,
             status="pending",
             is_online=event.is_online,
+            image_url=event.image_url,
             location=LocationSummary.from_location(event.location),
         )
 
@@ -247,6 +269,11 @@ class RemoveAttendeeResponse(BaseModel):
     google_synced: bool = False
 
 
+class EventImageResponse(BaseModel):
+    event_id: int
+    image_url: str
+
+
 # ---------------------------------------------------------------------------
 # Request schemas
 # ---------------------------------------------------------------------------
@@ -286,6 +313,33 @@ class EventCreate(BaseModel):
         return self
 
 
+class EventUpdate(BaseModel):
+    title: str | None = None
+    about: str | None = None
+    price: float | None = None
+    total_capacity: int | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    category: EventCategory | None = None
+    is_online: bool | None = None
+    schedule: list[EventScheduleEntry] | None = None
+    location: Location | None = None
+
+    @field_validator("price")
+    @classmethod
+    def price_non_negative(cls, v: float | None) -> float | None:
+        if v is not None and v < 0:
+            raise ValueError("Price must be non-negative")
+        return v
+
+    @field_validator("total_capacity")
+    @classmethod
+    def capacity_positive(cls, v: int | None) -> int | None:
+        if v is not None and v <= 0:
+            raise ValueError("Total capacity must be positive")
+        return v
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -312,6 +366,58 @@ async def _next_event_id(db: AsyncDatabase[dict[str, Any]]) -> int:
     if counter is None:
         raise HTTPException(status_code=500, detail="Failed to allocate event ID")
     return int(counter["seq"])
+
+
+def _event_upload_path(filename: str) -> str:
+    return os.path.join(UPLOAD_DIR, filename)
+
+
+def _removable_event_image_path(event_id: int, image_url: str | None) -> str | None:
+    if not image_url or not image_url.startswith("/uploads/"):
+        return None
+
+    filename = image_url.rsplit("/", 1)[-1]
+    if not filename.startswith(f"event_{event_id}_"):
+        return None
+
+    return _event_upload_path(filename)
+
+
+async def _read_valid_event_image(file: UploadFile) -> tuple[bytes, str]:
+    if file.content_type not in ALLOWED_EVENT_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Allowed: JPG, PNG, GIF.",
+        )
+
+    ext = (file.filename or "event-image.jpg").rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_EVENT_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file extension. Allowed: jpg, jpeg, png, gif.",
+        )
+
+    contents = await file.read()
+    if len(contents) > MAX_EVENT_IMAGE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large. Max size is 5MB.")
+
+    return contents, ext
+
+
+async def _event_counts(
+    db: AsyncDatabase[dict[str, Any]], event_id: int
+) -> tuple[int, int]:
+    attending = await db["attendance"].count_documents(
+        {"event_id": event_id, "status": {"$ne": "cancelled"}}
+    )
+    favorites = await db["event_favorites"].count_documents({"event_id": event_id})
+    return attending, favorites
+
+
+def _event_with_updates(event: Event, updates: dict[str, Any]) -> Event:
+    data = event.model_dump()
+    data.update(updates)
+    return Event(**data)
 
 
 async def _attending_counts(
@@ -832,13 +938,64 @@ async def get_event(db: DbDep, event_id: int) -> EventDetail:
         raise HTTPException(status_code=404, detail="Event not found")
 
     event = Event(**raw)
-    attending = await db["attendance"].count_documents(
-        {"event_id": event_id, "status": {"$ne": "cancelled"}}
-    )
-    favorites = await db["event_favorites"].count_documents({"event_id": event_id})
+    attending, favorites = await _event_counts(db, event_id)
 
     return EventDetail.from_event(
         event, attending_count=attending, favorites_count=favorites
+    )
+
+
+@router.get("/{event_id}/manage", response_model=EventManageDetail)
+async def get_event_for_management(
+    db: DbDep, event_id: int, current_user: AuthUserDep
+) -> EventManageDetail:
+    """Retrieve full event details for organizer/admin editing."""
+    raw = await db["events"].find_one({"id": event_id})
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw)
+    _require_organizer_or_admin(current_user, event)
+    attending, favorites = await _event_counts(db, event_id)
+    return EventManageDetail.from_event(
+        event, attending_count=attending, favorites_count=favorites
+    )
+
+
+@router.patch("/{event_id}", response_model=EventManageDetail)
+async def update_event(
+    db: DbDep, event_id: int, body: EventUpdate, current_user: AuthUserDep
+) -> EventManageDetail:
+    """Update an event. Restricted to the organizer or an admin."""
+    raw = await db["events"].find_one({"id": event_id})
+    if raw is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw)
+    _require_organizer_or_admin(current_user, event)
+
+    updates = body.model_dump(exclude_unset=True)
+    if isinstance(updates.get("start_time"), datetime):
+        updates["start_time"] = utc_naive_datetime(updates["start_time"])
+    if isinstance(updates.get("end_time"), datetime):
+        updates["end_time"] = utc_naive_datetime(updates["end_time"])
+
+    if body.start_time is None and body.end_time is None:
+        pass
+    elif updates.get("end_time", event.end_time) <= updates.get(
+        "start_time", event.start_time
+    ):
+        raise HTTPException(status_code=422, detail="End time must be after start time")
+
+    if updates:
+        updated_event = _event_with_updates(event, updates)
+        await db["events"].update_one({"id": event_id}, {"$set": updates})
+    else:
+        updated_event = event
+
+    attending, favorites = await _event_counts(db, event_id)
+    return EventManageDetail.from_event(
+        updated_event, attending_count=attending, favorites_count=favorites
     )
 
 
@@ -1482,6 +1639,43 @@ async def create_event(
     await email_notif.send_event_creation_confirmation(current_user.email, event)
 
     return EventDetail.from_event(event, attending_count=0, favorites_count=0)
+
+
+@router.post("/{event_id}/image", response_model=EventImageResponse)
+async def upload_event_image(
+    db: DbDep, event_id: int, file: UploadFile, current_user: AuthUserDep
+) -> EventImageResponse:
+    """Upload or replace an event image. Restricted to the organizer or an admin."""
+    raw_event = await db["events"].find_one({"id": event_id})
+    if raw_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    event = Event(**raw_event)
+    _require_organizer_or_admin(current_user, event)
+    contents, ext = await _read_valid_event_image(file)
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    filename = f"event_{event_id}_{uuid.uuid4().hex[:8]}.{ext}"
+    filepath = _event_upload_path(filename)
+    old_path = _removable_event_image_path(event_id, event.image_url)
+
+    with open(filepath, "wb") as f:
+        f.write(contents)
+
+    image_url = f"/uploads/{filename}"
+    try:
+        await db["events"].update_one(
+            {"id": event_id}, {"$set": {"image_url": image_url}}
+        )
+    except Exception:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        raise
+
+    if old_path and os.path.exists(old_path):
+        os.remove(old_path)
+
+    return EventImageResponse(event_id=event_id, image_url=image_url)
 
 
 @router.post("/{event_id}/approve", response_model=PendingEventListItem)

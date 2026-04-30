@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { EventImageUploadButton } from "@/app/components/event-image-upload-button";
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
 import { toBrowserSafeBackendUrl } from "@/lib/api-base";
@@ -100,68 +101,92 @@ function PlusIcon({ className }: { className?: string }) {
 function EventCard({
   event,
   showManageLink,
+  onImageUploaded,
 }: {
   event: MyEventItem;
   showManageLink?: boolean;
+  onImageUploaded?: (imageUrl: string) => void;
 }) {
   const badge = statusBadge(event.status);
+  const eventIsPublic = event.status === null || event.status === "approved";
 
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
-      <Link href={`/events/${event.id}`} className="flex gap-4 p-4">
-        <div className="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-gray-100">
-          {event.image_url ? (
-            <img
-              src={toBrowserSafeBackendUrl(event.image_url)}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <TicketIcon className="h-8 w-8 text-gray-300" />
-            </div>
+  const content = (
+    <div className="flex gap-4 p-4">
+      <div className="h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-gray-100">
+        {event.image_url ? (
+          <img
+            src={toBrowserSafeBackendUrl(event.image_url)}
+            alt=""
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <TicketIcon className="h-8 w-8 text-gray-300" />
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="truncate text-sm font-semibold text-gray-900">{event.title}</h3>
+          {badge && (
+            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${badge.color}`}>
+              {badge.label}
+            </span>
           )}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="truncate text-sm font-semibold text-gray-900">{event.title}</h3>
-            {badge && (
-              <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${badge.color}`}>
-                {badge.label}
-              </span>
-            )}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-            <span className="flex items-center gap-1">
-              <CalendarIcon className="h-3.5 w-3.5" />
-              {formatDate(event.start_time)} &middot; {formatTime(event.start_time)}
-            </span>
-            <span className="flex items-center gap-1">
-              <MapPinIcon className="h-3.5 w-3.5" />
-              {event.location_summary}
-            </span>
-            <span className="flex items-center gap-1">
-              <UsersIcon className="h-3.5 w-3.5" />
-              {event.attending_count} attending
-            </span>
-          </div>
-          <div className="mt-1.5 flex items-center gap-3">
-            <span className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-600">
-              {event.category}
-            </span>
-            <span className="text-xs font-medium text-gray-900">{formatPrice(event.price)}</span>
-          </div>
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+          <span className="flex items-center gap-1">
+            <CalendarIcon className="h-3.5 w-3.5" />
+            {formatDate(event.start_time)} &middot; {formatTime(event.start_time)}
+          </span>
+          <span className="flex items-center gap-1">
+            <MapPinIcon className="h-3.5 w-3.5" />
+            {event.location_summary}
+          </span>
+          <span className="flex items-center gap-1">
+            <UsersIcon className="h-3.5 w-3.5" />
+            {event.attending_count} attending
+          </span>
         </div>
-      </Link>
+        <div className="mt-1.5 flex items-center gap-3">
+          <span className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+            {event.category}
+          </span>
+          <span className="text-xs font-medium text-gray-900">{formatPrice(event.price)}</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className={`rounded-xl border border-gray-200 bg-white shadow-sm transition ${eventIsPublic ? "hover:shadow-md" : "opacity-90"}`}>
+      {eventIsPublic ? (
+        <Link href={`/events/${event.id}`}>{content}</Link>
+      ) : (
+        <div aria-disabled="true">{content}</div>
+      )}
       {showManageLink && (
-        <div className="flex items-center justify-end border-t border-gray-100 px-4 py-2">
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 px-4 py-2">
           <Link
-            href={`/events/${event.id}/attendees`}
+            href={`/events/${event.id}/edit`}
             className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
           >
-            <UsersIcon className="h-3.5 w-3.5" />
-            Manage Attendees ({event.attending_count})
+            Edit Event
           </Link>
+          {eventIsPublic && (
+            <Link
+              href={`/events/${event.id}/attendees`}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+            >
+              <UsersIcon className="h-3.5 w-3.5" />
+              Manage Attendees ({event.attending_count})
+            </Link>
+          )}
+          <EventImageUploadButton
+            eventId={event.id}
+            className="inline-flex cursor-pointer items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
+            onUploaded={onImageUploaded}
+          />
         </div>
       )}
     </div>
@@ -255,6 +280,20 @@ export default function MyEventsPage() {
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }
 
+  function updateEventImage(eventId: number, imageUrl: string) {
+    setData((current) => {
+      if (!current) return current;
+
+      const update = (event: MyEventItem): MyEventItem =>
+        event.id === eventId ? { ...event, image_url: imageUrl } : event;
+
+      return {
+        created: current.created.map(update),
+        registered: current.registered.map(update),
+      };
+    });
+  }
+
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
       <Navbar />
@@ -339,7 +378,12 @@ export default function MyEventsPage() {
         ) : (
           <div className="space-y-3">
             {events.map((event) => (
-              <EventCard key={event.id} event={event} showManageLink={tab === "created"} />
+              <EventCard
+                key={event.id}
+                event={event}
+                showManageLink={tab === "created"}
+                onImageUploaded={(imageUrl) => updateEventImage(event.id, imageUrl)}
+              />
             ))}
           </div>
         )}
