@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as autoscaling from 'aws-cdk-lib/aws-autoscaling';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as elasticache from 'aws-cdk-lib/aws-elasticache';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
@@ -28,6 +29,8 @@ export interface ApiStackProps extends cdk.StackProps {
   maxCapacity?: number;
   apiPort?: number;
   healthCheckPath?: string;
+  enableNotificationWorker?: boolean;
+  valkeyNodeType?: string;
   /**
    * SSM parameter names that store backend environment values.
    * Example values in SSM Parameter Store:
@@ -35,6 +38,11 @@ export interface ApiStackProps extends cdk.StackProps {
    * - /evently/dev/SESSION_SECRET_KEY
    */
   ssmParameterNames?: Record<string, string>;
+  /**
+   * SSM parameter names that should be loaded when present, but should not
+   * fail instance boot when missing.
+   */
+  optionalSsmParameterNames?: Record<string, string>;
 }
 
 export class EventlyApiStack extends cdk.Stack {
@@ -44,6 +52,10 @@ export class EventlyApiStack extends cdk.Stack {
     const prefix = `${props.projectName}-${props.environment}`;
     const apiPort = props.apiPort ?? 8000;
     const healthCheckPath = props.healthCheckPath ?? '/health';
+    const enableNotificationWorker = props.enableNotificationWorker ?? true;
+    const minCapacity = props.minCapacity ?? 2;
+    const desiredCapacity = props.desiredCapacity ?? 2;
+    const maxCapacity = props.maxCapacity ?? 4;
 
     let vpc: ec2.IVpc;
     if (props.foundationVpcExportPrefix) {
@@ -85,6 +97,48 @@ export class EventlyApiStack extends cdk.Stack {
       securityGroupName: `${prefix}-api-ec2-sg`,
     });
     apiSg.addIngressRule(albSg, ec2.Port.tcp(apiPort), 'Allow API traffic from ALB');
+
+    let valkeyReplicationGroup: elasticache.CfnReplicationGroup | undefined;
+    if (enableNotificationWorker) {
+      const valkeyPort = 6379;
+      const valkeySg = new ec2.SecurityGroup(this, 'ValkeySg', {
+        vpc,
+        description: 'Security group for Evently Valkey',
+        allowAllOutbound: true,
+        securityGroupName: `${prefix}-valkey-sg`,
+      });
+      valkeySg.addIngressRule(
+        apiSg,
+        ec2.Port.tcp(valkeyPort),
+        'Allow Redis-compatible queue traffic from API EC2 instances'
+      );
+
+      const valkeySubnetGroup = new elasticache.CfnSubnetGroup(this, 'ValkeySubnetGroup', {
+        cacheSubnetGroupName: `${prefix}-valkey-subnets`,
+        description: 'Private subnets for Evently Valkey',
+        subnetIds: vpc.privateSubnets.map((subnet) => subnet.subnetId),
+      });
+
+      valkeyReplicationGroup = new elasticache.CfnReplicationGroup(
+        this,
+        'ValkeyReplicationGroup',
+        {
+          replicationGroupId: `${prefix}-valkey`,
+          replicationGroupDescription: 'Evently Redis-compatible queue for Arq jobs',
+          engine: 'valkey',
+          cacheNodeType: props.valkeyNodeType ?? 'cache.t4g.micro',
+          numCacheClusters: 1,
+          automaticFailoverEnabled: false,
+          multiAzEnabled: false,
+          transitEncryptionEnabled: false,
+          port: valkeyPort,
+          cacheSubnetGroupName: valkeySubnetGroup.ref,
+          securityGroupIds: [valkeySg.securityGroupId],
+          autoMinorVersionUpgrade: true,
+        }
+      );
+      valkeyReplicationGroup.addDependency(valkeySubnetGroup);
+    }
 
     const alb = new elbv2.ApplicationLoadBalancer(this, 'ApiAlb', {
       vpc,
@@ -176,6 +230,9 @@ export class EventlyApiStack extends cdk.Stack {
     const envVarSources: Record<string, string> = {
       ...props.ssmParameterNames,
     };
+    const optionalEnvVarSources: Record<string, string> = {
+      ...props.optionalSsmParameterNames,
+    };
 
     const defaultParameterPrefix = `/${props.projectName}/${props.environment}`;
     const defaults: Record<string, string> = {
@@ -189,6 +246,14 @@ export class EventlyApiStack extends cdk.Stack {
     for (const [key, value] of Object.entries(defaults)) {
       if (!envVarSources[key]) {
         envVarSources[key] = value;
+      }
+    }
+    const optionalDefaults: Record<string, string> = {
+      RESEND_API_KEY: `${defaultParameterPrefix}/RESEND_API_KEY`,
+    };
+    for (const [key, value] of Object.entries(optionalDefaults)) {
+      if (!optionalEnvVarSources[key]) {
+        optionalEnvVarSources[key] = value;
       }
     }
 
@@ -214,21 +279,45 @@ export class EventlyApiStack extends cdk.Stack {
       );
     }
 
+    for (const [envName, parameterName] of Object.entries(optionalEnvVarSources)) {
+      userData.addCommands(
+        `if ${envName}=$(aws ssm get-parameter --name "${parameterName}" --with-decryption --query Parameter.Value --output text --region ${this.region} 2>/tmp/${envName}.err); then printf '%s=%s\\n' "${envName}" "$${envName}" >> /opt/evently/backend.env; else echo "Optional SSM parameter ${parameterName} not found; ${envName} will be unset"; cat /tmp/${envName}.err || true; fi`
+      );
+    }
+
+    if (valkeyReplicationGroup) {
+      userData.addCommands(
+        `printf '%s=%s\\n' "REDIS_URL" "redis://${valkeyReplicationGroup.attrPrimaryEndPointAddress}:${valkeyReplicationGroup.attrPrimaryEndPointPort}/0" >> /opt/evently/backend.env`
+      );
+    }
+
     userData.addCommands(
+      'docker rm -f evently-worker || true',
       'docker rm -f evently-api || true',
       `docker run -d --name evently-api --restart unless-stopped -p ${apiPort}:${apiPort} --env-file /opt/evently/backend.env ${props.apiImageUri}`
     );
+    if (enableNotificationWorker) {
+      userData.addCommands(
+        `docker run -d --name evently-worker --restart unless-stopped --env-file /opt/evently/backend.env ${props.apiImageUri} uv run notif-worker`
+      );
+    }
 
     const asg = new autoscaling.AutoScalingGroup(this, 'ApiAsg', {
       vpc,
       launchTemplate,
-      minCapacity: props.minCapacity ?? 2,
-      desiredCapacity: props.desiredCapacity ?? 2,
-      maxCapacity: props.maxCapacity ?? 4,
+      minCapacity,
+      desiredCapacity,
+      maxCapacity,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       autoScalingGroupName: `${prefix}-api-asg`,
       // Give user-data + container startup enough time before ELB health verdicts.
       healthCheck: autoscaling.HealthCheck.elb({ grace: cdk.Duration.minutes(8) }),
+      updatePolicy: autoscaling.UpdatePolicy.rollingUpdate({
+        maxBatchSize: 1,
+        minInstancesInService: Math.max(0, Math.min(desiredCapacity - 1, minCapacity)),
+        waitOnResourceSignals: false,
+        pauseTime: cdk.Duration.minutes(8),
+      }),
     });
 
     asg.attachToApplicationTargetGroup(targetGroup);
@@ -247,5 +336,17 @@ export class EventlyApiStack extends cdk.Stack {
       value: asg.autoScalingGroupName,
       exportName: `${prefix}-ApiAsgName`,
     });
+    if (valkeyReplicationGroup) {
+      new cdk.CfnOutput(this, 'ValkeyEndpoint', {
+        description: 'Private Valkey endpoint for Evently background jobs',
+        value: valkeyReplicationGroup.attrPrimaryEndPointAddress,
+        exportName: `${prefix}-ValkeyEndpoint`,
+      });
+      new cdk.CfnOutput(this, 'ValkeyPort', {
+        description: 'Valkey port for Evently background jobs',
+        value: valkeyReplicationGroup.attrPrimaryEndPointPort,
+        exportName: `${prefix}-ValkeyPort`,
+      });
+    }
   }
 }
