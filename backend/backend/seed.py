@@ -804,6 +804,34 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
 
 ONLINE_EVENT_IDS = {2, 5, 13, 20, 24}
 
+SEED_EVENT_IMAGE_BASE_URL = "/uploads/seed-events"
+SEED_EVENT_IMAGE_FILES: dict[int, str] = {
+    1: "summer-music-festival.svg",
+    2: "tech-conference.svg",
+    3: "art-gallery-opening.svg",
+    4: "morning-yoga-session.svg",
+    5: "startup-networking-mixer.svg",
+    6: "comedy-night-live.svg",
+    7: "food-wine-festival.svg",
+    8: "photography-workshop.svg",
+    9: "jazz-in-the-park.svg",
+    10: "marathon-training-run.svg",
+    11: "indie-film-screening.svg",
+    12: "salsa-dance-night.svg",
+    13: "hackathon-build-for-good.svg",
+    14: "shakespeare-in-the-park.svg",
+    15: "ceramics-workshop.svg",
+    16: "outdoor-rock-climbing.svg",
+    17: "electronic-music-night.svg",
+    18: "book-club-meetup.svg",
+    19: "charity-5k-run.svg",
+    20: "ai-machine-learning-summit.svg",
+    21: "open-mic-night.svg",
+    22: "farmers-market-grand-opening.svg",
+    23: "improv-comedy-show.svg",
+    24: "blockchain-web3-workshop.svg",
+}
+
 SAMPLE_USERS: list[dict[str, Any]] = [
     {
         "id": 1,
@@ -1015,6 +1043,11 @@ SAMPLE_FAVORITES: list[dict[str, Any]] = [
 ]
 
 
+def _seed_event_image_url(event_id: int) -> str:
+    filename = SEED_EVENT_IMAGE_FILES[event_id]
+    return f"{SEED_EVENT_IMAGE_BASE_URL}/{filename}"
+
+
 async def _next_available_user_id(db: Any) -> int:
     highest = await db["users"].find_one(sort=[("id", -1)])
     if highest is None:
@@ -1137,7 +1170,7 @@ async def seed(*, force: bool = False) -> None:
                 {
                     **evt,
                     "is_online": evt["id"] in ONLINE_EVENT_IDS,
-                    "image_url": None,
+                    "image_url": _seed_event_image_url(evt["id"]),
                 }
             )
 

@@ -83,6 +83,10 @@ db-logs:
 # Restart everything
 restart: db-stop dev
 
+# Regenerate compact sample event image assets used by seed data
+seed-images:
+    cd .. && node scripts/generate_seed_event_images.mjs
+
 # Re-seed the database (drops existing data)
 seed: check-env
     uv run seed --force

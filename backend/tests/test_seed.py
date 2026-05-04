@@ -1,8 +1,16 @@
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
-from backend.seed import REQUIRED_STARTUP_USERS, ensure_required_startup_users
+from backend.seed import (
+    REQUIRED_STARTUP_USERS,
+    SAMPLE_EVENTS,
+    SEED_EVENT_IMAGE_BASE_URL,
+    SEED_EVENT_IMAGE_FILES,
+    _seed_event_image_url,
+    ensure_required_startup_users,
+)
 
 
 class _FakeCollection:
@@ -62,6 +70,21 @@ class _FakeDb:
 
     def __getitem__(self, name: str) -> _FakeCollection:
         return self._collections.setdefault(name, _FakeCollection())
+
+
+def test_seed_event_images_cover_every_sample_event() -> None:
+    sample_event_ids = {event["id"] for event in SAMPLE_EVENTS}
+    asset_dir = Path(__file__).resolve().parents[1] / "backend/uploads/seed-events"
+
+    assert set(SEED_EVENT_IMAGE_FILES) == sample_event_ids
+    for event_id, filename in SEED_EVENT_IMAGE_FILES.items():
+        assert _seed_event_image_url(event_id) == (
+            f"{SEED_EVENT_IMAGE_BASE_URL}/{filename}"
+        )
+
+        asset_path = asset_dir / filename
+        assert asset_path.is_file()
+        assert asset_path.stat().st_size < 10_000
 
 
 @pytest.mark.asyncio

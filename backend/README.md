@@ -44,6 +44,17 @@ The backend requires the following environment variables to be set:
 
 Alternatively, you can run `just dev` to start MongoDB, Redis, the backend, and the notification worker together.
 
+## Seed Data
+
+The seed command loads sample users, events, attendance, favorites, and compact SVG event banners from `backend/uploads/seed-events`.
+Run `just seed` to drop and reseed local data.
+
+If you edit the seeded event image set, regenerate the assets from the project root with:
+
+```bash
+just seed-images
+```
+
 ## CI
 
 > [!TIP]
