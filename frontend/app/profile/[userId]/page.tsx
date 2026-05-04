@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -9,6 +9,12 @@ import Navbar from "@/app/components/navbar";
 import { ApiError, apiFetch } from "@/lib/api";
 import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import { useAuth } from "@/lib/auth";
+import {
+  activityLabel,
+  formatProfileDate,
+  initials,
+  resolvePhotoUrl,
+} from "@/lib/profile-utils";
 import type { ActivityItem, ActivityResponse, UserDetail } from "@/lib/types";
 
 type ProfileResult = {
@@ -17,44 +23,8 @@ type ProfileResult = {
   error: string | null;
 };
 
-function resolvePhotoUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  return toBrowserSafeBackendUrl(url);
-}
-
-function initials(
-  firstName: string | null | undefined,
-  lastName: string | null | undefined,
-  fallback: string,
-): string {
-  const letters = [firstName, lastName]
-    .map((part) => part?.trim().charAt(0) ?? "")
-    .join("")
-    .toUpperCase();
-  return letters || fallback.trim().charAt(0).toUpperCase() || "U";
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function externalHref(url: string): string {
   return /^https?:\/\//i.test(url) ? url : `https://${url}`;
-}
-
-function activityLabel(action: ActivityItem["action"]): string {
-  switch (action) {
-    case "attended":
-      return "Attended";
-    case "created":
-      return "Created";
-    case "registered":
-      return "Registered for";
-  }
 }
 
 function PencilIcon({ className }: { className?: string }) {
@@ -315,7 +285,7 @@ export default function PublicProfilePage() {
                             <p className="truncate text-sm font-medium text-gray-900">
                               {activityLabel(item.action)} {item.event_title}
                             </p>
-                            <p className="text-xs text-gray-500">{formatDate(item.date)}</p>
+                            <p className="text-xs text-gray-500">{formatProfileDate(item.date)}</p>
                           </div>
                         </Link>
                       ))}

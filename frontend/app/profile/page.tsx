@@ -5,49 +5,14 @@ import { useEffect, useState } from "react";
 
 import Navbar from "@/app/components/navbar";
 import { apiFetch } from "@/lib/api";
-import { toBrowserSafeBackendUrl } from "@/lib/api-base";
+import {
+  activityLabel,
+  formatProfileDate,
+  initials,
+  resolvePhotoUrl,
+} from "@/lib/profile-utils";
 import { useRequireAuth } from "@/lib/auth";
 import type { ActivityItem, ActivityResponse, FullUserDetail } from "@/lib/types";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function resolvePhotoUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  return toBrowserSafeBackendUrl(url);
-}
-
-function initials(
-  firstName: string | null | undefined,
-  lastName: string | null | undefined,
-  fallback: string,
-): string {
-  const letters = [firstName, lastName]
-    .map((part) => part?.trim().charAt(0) ?? "")
-    .join("")
-    .toUpperCase();
-  return letters || fallback.trim().charAt(0).toUpperCase() || "U";
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function activityLabel(action: ActivityItem["action"]): string {
-  switch (action) {
-    case "attended":
-      return "Attended";
-    case "created":
-      return "Created";
-    case "registered":
-      return "Registered for";
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -411,7 +376,7 @@ export default function ProfilePage() {
                         <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-gray-100">
                           {item.event_image_url && (
                             <img
-                              src={toBrowserSafeBackendUrl(item.event_image_url)}
+                              src={resolvePhotoUrl(item.event_image_url) ?? ""}
                               alt=""
                               className="h-full w-full object-cover"
                             />
@@ -421,7 +386,7 @@ export default function ProfilePage() {
                           <p className="truncate text-sm font-medium text-gray-900">
                             {activityLabel(item.action)} {item.event_title}
                           </p>
-                          <p className="text-xs text-gray-500">{formatDate(item.date)}</p>
+                          <p className="text-xs text-gray-500">{formatProfileDate(item.date)}</p>
                         </div>
                       </Link>
                     ))}

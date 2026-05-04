@@ -1,34 +1,12 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const outDir = join("backend", "backend", "uploads", "seed-events");
-
-const events = [
-  { slug: "summer-music-festival", title: "Summer Music Festival 2026", theme: "festival", colors: ["#174a7c", "#ff6b35", "#ffe66d"] },
-  { slug: "tech-conference", title: "Tech Conference 2026", theme: "conference", colors: ["#102a43", "#00b4d8", "#90e0ef"] },
-  { slug: "art-gallery-opening", title: "Art Gallery Opening", theme: "gallery", colors: ["#2b2d42", "#ef476f", "#ffd166"] },
-  { slug: "morning-yoga-session", title: "Morning Yoga Session", theme: "yoga", colors: ["#116466", "#ffcb77", "#f7fff7"] },
-  { slug: "startup-networking-mixer", title: "Startup Networking Mixer", theme: "networking", colors: ["#233d4d", "#fe7f2d", "#a1c181"] },
-  { slug: "comedy-night-live", title: "Comedy Night Live", theme: "comedy", colors: ["#20123a", "#f72585", "#ffd166"] },
-  { slug: "food-wine-festival", title: "Food & Wine Festival", theme: "foodwine", colors: ["#5f0f40", "#e36414", "#9a031e"] },
-  { slug: "photography-workshop", title: "Photography Workshop", theme: "photography", colors: ["#1d3557", "#457b9d", "#f1faee"] },
-  { slug: "jazz-in-the-park", title: "Jazz in the Park", theme: "jazz", colors: ["#283618", "#dda15e", "#fefae0"] },
-  { slug: "marathon-training-run", title: "Marathon Training Run", theme: "marathon", colors: ["#0b3954", "#bfd7ea", "#ff6663"] },
-  { slug: "indie-film-screening", title: "Indie Film Screening", theme: "film", colors: ["#111827", "#6b7280", "#f9fafb"] },
-  { slug: "salsa-dance-night", title: "Salsa Dance Night", theme: "salsa", colors: ["#7b2cbf", "#ff006e", "#ffbe0b"] },
-  { slug: "hackathon-build-for-good", title: "Hackathon: Build for Good", theme: "hackathon", colors: ["#001219", "#0a9396", "#ee9b00"] },
-  { slug: "shakespeare-in-the-park", title: "Shakespeare in the Park", theme: "theater", colors: ["#2f3e46", "#84a98c", "#cad2c5"] },
-  { slug: "ceramics-workshop", title: "Ceramics Workshop", theme: "ceramics", colors: ["#3d405b", "#e07a5f", "#f2cc8f"] },
-  { slug: "outdoor-rock-climbing", title: "Outdoor Rock Climbing", theme: "climbing", colors: ["#264653", "#2a9d8f", "#e9c46a"] },
-  { slug: "electronic-music-night", title: "Electronic Music Night", theme: "electronic", colors: ["#10002b", "#00f5d4", "#f15bb5"] },
-  { slug: "book-club-meetup", title: "Book Club Meetup", theme: "books", colors: ["#3a5a40", "#a3b18a", "#dad7cd"] },
-  { slug: "charity-5k-run", title: "Charity 5K Run", theme: "charityrun", colors: ["#006d77", "#83c5be", "#ffddd2"] },
-  { slug: "ai-machine-learning-summit", title: "AI & Machine Learning Summit", theme: "ai", colors: ["#14213d", "#fca311", "#e5e5e5"] },
-  { slug: "open-mic-night", title: "Open Mic Night", theme: "openmic", colors: ["#240046", "#ff9e00", "#9d4edd"] },
-  { slug: "farmers-market-grand-opening", title: "Farmers Market Grand Opening", theme: "market", colors: ["#386641", "#6a994e", "#f2e8cf"] },
-  { slug: "improv-comedy-show", title: "Improv Comedy Show", theme: "improv", colors: ["#3c1642", "#b2ff9e", "#ff6b6b"] },
-  { slug: "blockchain-web3-workshop", title: "Blockchain & Web3 Workshop", theme: "blockchain", colors: ["#03045e", "#48cae4", "#caf0f8"] },
-];
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(scriptDir, "..");
+const outDir = resolve(repoRoot, "backend", "backend", "uploads", "seed-events");
+const manifestPath = resolve(repoRoot, "backend", "backend", "seed_event_images.json");
+const events = JSON.parse(readFileSync(manifestPath, "utf8"));
 
 function escapeXml(value) {
   return value
@@ -272,7 +250,7 @@ mkdirSync(outDir, { recursive: true });
 
 for (const event of events) {
   writeFileSync(
-    join(outDir, `${event.slug}.svg`),
+    resolve(outDir, `${event.slug}.svg`),
     base({
       title: event.title,
       colors: event.colors,

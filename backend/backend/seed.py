@@ -7,9 +7,11 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
@@ -805,32 +807,17 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
 ONLINE_EVENT_IDS = {2, 5, 13, 20, 24}
 
 SEED_EVENT_IMAGE_BASE_URL = "/uploads/seed-events"
-SEED_EVENT_IMAGE_FILES: dict[int, str] = {
-    1: "summer-music-festival.svg",
-    2: "tech-conference.svg",
-    3: "art-gallery-opening.svg",
-    4: "morning-yoga-session.svg",
-    5: "startup-networking-mixer.svg",
-    6: "comedy-night-live.svg",
-    7: "food-wine-festival.svg",
-    8: "photography-workshop.svg",
-    9: "jazz-in-the-park.svg",
-    10: "marathon-training-run.svg",
-    11: "indie-film-screening.svg",
-    12: "salsa-dance-night.svg",
-    13: "hackathon-build-for-good.svg",
-    14: "shakespeare-in-the-park.svg",
-    15: "ceramics-workshop.svg",
-    16: "outdoor-rock-climbing.svg",
-    17: "electronic-music-night.svg",
-    18: "book-club-meetup.svg",
-    19: "charity-5k-run.svg",
-    20: "ai-machine-learning-summit.svg",
-    21: "open-mic-night.svg",
-    22: "farmers-market-grand-opening.svg",
-    23: "improv-comedy-show.svg",
-    24: "blockchain-web3-workshop.svg",
-}
+SEED_EVENT_IMAGE_MANIFEST_PATH = Path(__file__).with_name("seed_event_images.json")
+
+
+def _load_seed_event_image_files() -> dict[int, str]:
+    manifest: list[dict[str, Any]] = json.loads(
+        SEED_EVENT_IMAGE_MANIFEST_PATH.read_text(encoding="utf-8")
+    )
+    return {int(entry["id"]): f"{entry['slug']}.svg" for entry in manifest}
+
+
+SEED_EVENT_IMAGE_FILES = _load_seed_event_image_files()
 
 SAMPLE_USERS: list[dict[str, Any]] = [
     {

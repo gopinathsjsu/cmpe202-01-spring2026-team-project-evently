@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { toBrowserSafeBackendUrl } from "@/lib/api-base";
+import { initials } from "@/lib/profile-utils";
 import type { EventDetail, UserDetail } from "@/lib/types";
 import { EventLocationMapLoader } from "./event-location-map-loader";
 import { OrganizerActions } from "./organizer-actions";
@@ -94,6 +95,9 @@ export default async function EventDetailPage({
   }
 
   const spotsLeft = event.total_capacity - event.attending_count;
+  const organizerBadgeInitials = organizer
+    ? initials(organizer.first_name, organizer.last_name, organizer.username)
+    : null;
 
   return (
     <div className="min-h-screen bg-white text-black font-sans antialiased">
@@ -147,8 +151,8 @@ export default async function EventDetailPage({
                     height={40}
                     className="h-full w-full object-cover"
                   />
-                ) : organizer ? (
-                  `${organizer.first_name[0]}${organizer.last_name[0]}`
+                ) : organizerBadgeInitials ? (
+                  organizerBadgeInitials
                 ) : (
                     <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
                       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
