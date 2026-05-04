@@ -14,10 +14,18 @@ from resend.version import get_version
 from backend.models.event import Event
 
 REMINDER_LEAD_TIME_MINUTES = 60
+DEFAULT_EMAIL_FROM = "Evently <notifications@example.com>"
 
 
 def _html_text(value: object) -> str:
     return escape(str(value), quote=True)
+
+
+def _resolve_from_email(from_email: str | None = None) -> str:
+    configured = from_email if from_email is not None else os.getenv("EMAIL_FROM")
+    if configured and configured.strip():
+        return configured.strip()
+    return DEFAULT_EMAIL_FROM
 
 
 class EmailSender(Protocol):
@@ -112,9 +120,7 @@ class EmailNotificationService:
         email_sender: EmailSender | None = None,
     ) -> None:
         self._email_sender = email_sender or ResendEmailSender(resend_api_key)
-        self.from_email = from_email or os.environ.get(
-            "EMAIL_FROM", "Acme <onboarding@resend.dev>"
-        )
+        self.from_email = _resolve_from_email(from_email)
 
     async def send_event_creation_confirmation(
         self, recipient_email: str, event: Event
@@ -175,7 +181,7 @@ class EmailNotificationService:
 
 class DisabledEmailNotificationService(EmailNotificationService):
     def __init__(self) -> None:
-        self.from_email = os.environ.get("EMAIL_FROM", "Acme <onboarding@resend.dev>")
+        self.from_email = _resolve_from_email()
         self._logger = logging.getLogger(__name__)
 
     async def _log_disabled_send(
@@ -211,7 +217,7 @@ def create_email_notification_service(
     *,
     allow_missing: bool = False,
 ) -> EmailNotificationService:
-    """Create an EmailNotificationService instance using the provided Resend API key or the `RESEND_API_KEY` environment variable."""
+    """Create an EmailNotificationService from Resend environment settings."""
     api_key = resend_api_key or os.getenv("RESEND_API_KEY")
     if not api_key:
         if allow_missing:

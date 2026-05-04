@@ -13,6 +13,7 @@ from starlette.requests import Request
 from backend.models.event import Event, EventCategory, Location
 from backend.services.notifications.arq import get_arq, get_redis_settings
 from backend.services.notifications.email import (
+    DEFAULT_EMAIL_FROM,
     DisabledEmailNotificationService,
     EmailNotificationService,
     create_email_notification_service,
@@ -163,6 +164,27 @@ def test_email_service_constructor_does_not_mutate_resend_api_key(
     EmailNotificationService("service-key")
 
     assert resend.api_key == "global-key"
+
+
+def test_email_service_uses_configured_sender_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAIL_FROM", "  Evently <events@example.com>  ")
+
+    service = EmailNotificationService("service-key")
+
+    assert service.from_email == "Evently <events@example.com>"
+
+
+def test_email_service_default_sender_does_not_use_resend_demo_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+
+    service = EmailNotificationService("service-key")
+
+    assert service.from_email == DEFAULT_EMAIL_FROM
+    assert "resend.dev" not in service.from_email
 
 
 def test_create_email_notification_service_requires_key(
