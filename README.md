@@ -52,6 +52,13 @@ The frontend container uses two API base URLs:
 - `NEXT_PUBLIC_API_URL=http://localhost:8000` for browser requests
 - `API_INTERNAL_URL=http://backend:8000` for server-side Next.js requests inside Docker
 
+Sample event data includes compact generated SVG banners stored in `backend/backend/uploads/seed-events`.
+Regenerate those assets with:
+
+```bash
+just seed-images
+```
+
 **3. Stop / reset:**
 
 ```bash
@@ -72,6 +79,13 @@ just frontend
 ```
 
 Run `just` with no arguments to see all available commands.
+
+To reseed local data, including the sample event image URLs, run:
+
+```bash
+cd backend
+just seed
+```
 
 ## Admin Access
 

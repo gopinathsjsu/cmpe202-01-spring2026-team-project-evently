@@ -43,6 +43,10 @@ db-stop:
 backend:
     cd backend && just dev
 
+# Regenerate compact sample event image assets used by backend seed data
+seed-images:
+    node scripts/generate_seed_event_images.mjs
+
 # Start notification worker in local dev mode
 worker:
     cd backend && just worker

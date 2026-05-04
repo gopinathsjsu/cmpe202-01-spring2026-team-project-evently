@@ -7,9 +7,11 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from pymongo.asynchronous.mongo_client import AsyncMongoClient
@@ -804,6 +806,19 @@ SAMPLE_EVENTS: list[dict[str, Any]] = [
 
 ONLINE_EVENT_IDS = {2, 5, 13, 20, 24}
 
+SEED_EVENT_IMAGE_BASE_URL = "/uploads/seed-events"
+SEED_EVENT_IMAGE_MANIFEST_PATH = Path(__file__).with_name("seed_event_images.json")
+
+
+def _load_seed_event_image_files() -> dict[int, str]:
+    manifest: list[dict[str, Any]] = json.loads(
+        SEED_EVENT_IMAGE_MANIFEST_PATH.read_text(encoding="utf-8")
+    )
+    return {int(entry["id"]): f"{entry['slug']}.svg" for entry in manifest}
+
+
+SEED_EVENT_IMAGE_FILES = _load_seed_event_image_files()
+
 SAMPLE_USERS: list[dict[str, Any]] = [
     {
         "id": 1,
@@ -1015,6 +1030,11 @@ SAMPLE_FAVORITES: list[dict[str, Any]] = [
 ]
 
 
+def _seed_event_image_url(event_id: int) -> str:
+    filename = SEED_EVENT_IMAGE_FILES[event_id]
+    return f"{SEED_EVENT_IMAGE_BASE_URL}/{filename}"
+
+
 async def _next_available_user_id(db: Any) -> int:
     highest = await db["users"].find_one(sort=[("id", -1)])
     if highest is None:
@@ -1137,7 +1157,7 @@ async def seed(*, force: bool = False) -> None:
                 {
                     **evt,
                     "is_online": evt["id"] in ONLINE_EVENT_IDS,
-                    "image_url": None,
+                    "image_url": _seed_event_image_url(evt["id"]),
                 }
             )
 

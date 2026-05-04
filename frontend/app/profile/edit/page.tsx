@@ -6,30 +6,9 @@ import { useEffect, useRef, useState } from "react";
 
 import Navbar from "@/app/components/navbar";
 import { ApiError, apiFetch } from "@/lib/api";
-import { toBrowserSafeBackendUrl } from "@/lib/api-base";
 import { useRequireAuth } from "@/lib/auth";
+import { initials, resolvePhotoUrl } from "@/lib/profile-utils";
 import type { FullUserDetail } from "@/lib/types";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function resolvePhotoUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  return toBrowserSafeBackendUrl(url);
-}
-
-function initials(
-  firstName: string | null | undefined,
-  lastName: string | null | undefined,
-  fallback: string,
-): string {
-  const letters = [firstName, lastName]
-    .map((part) => part?.trim().charAt(0) ?? "")
-    .join("")
-    .toUpperCase();
-  return letters || fallback.trim().charAt(0).toUpperCase() || "U";
-}
 
 // ---------------------------------------------------------------------------
 // Page
