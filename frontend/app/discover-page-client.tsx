@@ -228,7 +228,7 @@ export default function DiscoverPageClient({
   const [eventTypeFilters, setEventTypeFilters] = useState<string[]>([]);
   const [priceFilter, setPriceFilter] = useState<string | null>(null);
   const skippedInitialFetch = useRef(false);
-  const hasInitialEvents = initialData.items.length > 0 || initialData.total > 0;
+  const hasInitialEvents = initialData.items.length > 0;
 
   const resolvedIsOnline =
     eventTypeFilters.includes("Online") &&

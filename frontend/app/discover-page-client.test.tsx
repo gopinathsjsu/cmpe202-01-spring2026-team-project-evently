@@ -29,37 +29,45 @@ describe("DiscoverPageClient", () => {
     vi.clearAllMocks();
   });
 
-  it("fetches default events when server initial data is empty", async () => {
-    mockedApiFetch.mockResolvedValueOnce({
-      items: [
-        {
-          id: 10,
-          title: "Marathon Training Run",
-          price: 0,
-          start_time: "2026-03-22T06:30:00",
-          category: "Sports",
-          is_online: false,
-          image_url: null,
-          location: {
-            venue_name: "Embarcadero",
-            city: "San Francisco",
-            state: "CA",
+  it.each([
+    { items: [], total: 0 },
+    { items: [], total: 1 },
+  ])(
+    "fetches default events when server initial data has no items: %o",
+    async (initialData) => {
+      mockedApiFetch.mockResolvedValueOnce({
+        items: [
+          {
+            id: 10,
+            title: "Marathon Training Run",
+            price: 0,
+            start_time: "2026-03-22T06:30:00",
+            category: "Sports",
+            is_online: false,
+            image_url: null,
+            location: {
+              venue_name: "Embarcadero",
+              city: "San Francisco",
+              state: "CA",
+            },
+            attending_count: 75,
           },
-          attending_count: 75,
-        },
-      ],
-      total: 1,
-    });
+        ],
+        total: 1,
+      });
 
-    render(<DiscoverPageClient initialData={{ items: [], total: 0 }} />);
+      render(<DiscoverPageClient initialData={initialData} />);
 
-    await waitFor(() => {
-      expect(mockedApiFetch).toHaveBeenCalledWith(
-        "/events/?page=1&page_size=12&sort_by=start_time&sort_order=asc",
-      );
-    });
+      await waitFor(() => {
+        expect(mockedApiFetch).toHaveBeenCalledWith(
+          "/events/?page=1&page_size=12&sort_by=start_time&sort_order=asc",
+        );
+      });
 
-    expect(await screen.findByText("Marathon Training Run")).toBeInTheDocument();
-    expect(screen.getByText("Showing 1 events")).toBeInTheDocument();
-  });
+      expect(
+        await screen.findByText("Marathon Training Run"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("Showing 1 events")).toBeInTheDocument();
+    },
+  );
 });
