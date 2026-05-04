@@ -12,7 +12,8 @@ The backend requires the following environment variables to be set:
 | `DB_PASSWORD`           | MongoDB root password                 | `password`                                 |
 | `DATABASE_URL`          | Full MongoDB connection URL           | `mongodb://admin:password@localhost:27017` |
 | `REDIS_URL`             | Full Redis connection URL             | `redis://localhost:6379/0`                 |
-| `RESEND_API_KEY`        | Resend API Key                        | `1234SEND`                                 |
+| `RESEND_API_KEY`        | Optional Resend API key for email     | `1234SEND`                                 |
+| `EMAIL_FROM`            | Optional verified notification sender | `Evently <notifications@example.com>`      |
 | `NOMINATIM_USER_AGENT`  | Identifies Evently geocoding requests | `Evently/1.0 (team@example.com)`           |
 
 **Setup:**
