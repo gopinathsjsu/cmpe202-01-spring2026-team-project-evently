@@ -4,7 +4,7 @@
 
 ### Environment Variables
 
-The backend requires the following environment variables to be set:
+The backend uses the following environment variables:
 
 | Variable                | Description                           | Example                                    |
 | ----------------------- | ------------------------------------- | ------------------------------------------ |
@@ -13,7 +13,7 @@ The backend requires the following environment variables to be set:
 | `DATABASE_URL`          | Full MongoDB connection URL           | `mongodb://admin:password@localhost:27017` |
 | `REDIS_URL`             | Full Redis connection URL             | `redis://localhost:6379/0`                 |
 | `RESEND_API_KEY`        | Optional Resend API key for email     | `1234SEND`                                 |
-| `EMAIL_FROM`            | Optional verified notification sender | `Evently <notifications@example.com>`      |
+| `EMAIL_FROM`            | Optional verified notification sender | `Evently <notifications@your-domain.com>`  |
 | `NOMINATIM_USER_AGENT`  | Identifies Evently geocoding requests | `Evently/1.0 (team@example.com)`           |
 
 **Setup:**

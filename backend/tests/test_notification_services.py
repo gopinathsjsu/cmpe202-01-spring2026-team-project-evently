@@ -13,7 +13,6 @@ from starlette.requests import Request
 from backend.models.event import Event, EventCategory, Location
 from backend.services.notifications.arq import get_arq, get_redis_settings
 from backend.services.notifications.email import (
-    DEFAULT_EMAIL_FROM,
     DisabledEmailNotificationService,
     EmailNotificationService,
     create_email_notification_service,
@@ -127,6 +126,7 @@ async def test_create_email_notification_service_prefers_explicit_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RESEND_API_KEY", "env-key")
+    monkeypatch.setenv("EMAIL_FROM", "Evently <events@example.com>")
     monkeypatch.setattr(resend, "api_key", "global-key")
     http_client = _RecordingAsyncHTTPClient()
     monkeypatch.setattr(resend, "default_async_http_client", http_client)
@@ -144,6 +144,7 @@ async def test_create_email_notification_service_uses_env_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RESEND_API_KEY", "env-key")
+    monkeypatch.setenv("EMAIL_FROM", "Evently <events@example.com>")
     monkeypatch.setattr(resend, "api_key", "global-key")
     http_client = _RecordingAsyncHTTPClient()
     monkeypatch.setattr(resend, "default_async_http_client", http_client)
@@ -161,7 +162,7 @@ def test_email_service_constructor_does_not_mutate_resend_api_key(
 ) -> None:
     monkeypatch.setattr(resend, "api_key", "global-key")
 
-    EmailNotificationService("service-key")
+    EmailNotificationService("service-key", from_email="Evently <events@example.com>")
 
     assert resend.api_key == "global-key"
 
@@ -176,15 +177,13 @@ def test_email_service_uses_configured_sender_from_env(
     assert service.from_email == "Evently <events@example.com>"
 
 
-def test_email_service_default_sender_does_not_use_resend_demo_domain(
+def test_email_service_requires_configured_sender(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("EMAIL_FROM", raising=False)
 
-    service = EmailNotificationService("service-key")
-
-    assert service.from_email == DEFAULT_EMAIL_FROM
-    assert "resend.dev" not in service.from_email
+    with pytest.raises(ValueError, match="EMAIL_FROM"):
+        EmailNotificationService("service-key")
 
 
 def test_create_email_notification_service_requires_key(
@@ -193,6 +192,16 @@ def test_create_email_notification_service_requires_key(
     monkeypatch.delenv("RESEND_API_KEY", raising=False)
 
     with pytest.raises(ValueError, match="RESEND_API_KEY"):
+        create_email_notification_service()
+
+
+def test_create_email_notification_service_requires_sender_when_key_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RESEND_API_KEY", "env-key")
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+
+    with pytest.raises(ValueError, match="EMAIL_FROM"):
         create_email_notification_service()
 
 
@@ -214,6 +223,23 @@ async def test_create_email_notification_service_can_disable_email_when_key_miss
     assert "skipping event creation confirmation email" in caplog.text
     assert "skipping registration confirmation email" in caplog.text
     assert "skipping event reminder email" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_create_email_notification_service_disables_email_when_sender_missing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("RESEND_API_KEY", "env-key")
+    monkeypatch.delenv("EMAIL_FROM", raising=False)
+    event = _event()
+
+    with caplog.at_level(logging.INFO):
+        service = create_email_notification_service(allow_missing=True)
+        await service.send_registration_confirmation("attendee@example.com", event)
+
+    assert isinstance(service, DisabledEmailNotificationService)
+    assert "RESEND_API_KEY is set but EMAIL_FROM is not set" in caplog.text
+    assert "skipping registration confirmation email" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -284,7 +310,11 @@ async def test_send_event_reminder_payload() -> None:
 )
 async def test_email_html_escapes_event_title(method_name: str) -> None:
     email_sender = _RecordingEmailSender()
-    service = EmailNotificationService("test-key", email_sender=email_sender)
+    service = EmailNotificationService(
+        "test-key",
+        from_email="Evently <events@example.com>",
+        email_sender=email_sender,
+    )
     malicious_title = '"><img src=x onerror=alert(1)></p><script>alert(1)</script>&'
 
     send_email = cast(
@@ -310,7 +340,11 @@ async def test_email_service_logs_and_swallows_resend_errors(
     email_sender = _RecordingEmailSender(
         ResendError("500", "server_error", "boom", "retry")
     )
-    service = EmailNotificationService("test-key", email_sender=email_sender)
+    service = EmailNotificationService(
+        "test-key",
+        from_email="Evently <events@example.com>",
+        email_sender=email_sender,
+    )
     event = _event()
 
     with caplog.at_level(logging.ERROR):
@@ -342,7 +376,9 @@ def test_get_arq_raises_when_missing() -> None:
 
 def test_get_email_notif_service_returns_app_state_object() -> None:
     app = FastAPI()
-    service = EmailNotificationService("test-key")
+    service = EmailNotificationService(
+        "test-key", from_email="Evently <events@example.com>"
+    )
     app.state.email_notification_service = service
 
     assert get_email_notif_service(_request_for_app(app)) is service
