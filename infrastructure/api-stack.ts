@@ -250,6 +250,7 @@ export class EventlyApiStack extends cdk.Stack {
     }
     const optionalDefaults: Record<string, string> = {
       RESEND_API_KEY: `${defaultParameterPrefix}/RESEND_API_KEY`,
+      EMAIL_FROM: `${defaultParameterPrefix}/EMAIL_FROM`,
     };
     for (const [key, value] of Object.entries(optionalDefaults)) {
       if (!optionalEnvVarSources[key]) {

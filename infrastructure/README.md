@@ -66,11 +66,12 @@ By default, the API EC2 user-data reads these parameters:
 - `/<projectName>/<environment>/OAUTH_CLIENT_SECRET`
 - `/<projectName>/<environment>/ADMIN_EMAILS`
 
-The API stack also tries to read this optional parameter:
+The API stack also tries to read these optional parameters:
 
 - `/<projectName>/<environment>/RESEND_API_KEY`
+- `/<projectName>/<environment>/EMAIL_FROM`
 
-If `RESEND_API_KEY` is missing, EC2 boot continues and the backend logs that email notifications are disabled.
+If `RESEND_API_KEY` is missing, EC2 boot continues and the backend logs that email notifications are disabled. When email notifications are enabled, set `EMAIL_FROM` to a Resend-verified sender, for example `Evently <notifications@your-domain.com>`.
 
 Example for default project and environment:
 
@@ -81,6 +82,7 @@ Example for default project and environment:
 - `/evently/dev/OAUTH_CLIENT_SECRET`
 - `/evently/dev/ADMIN_EMAILS`
 - `/evently/dev/RESEND_API_KEY` (optional)
+- `/evently/dev/EMAIL_FROM` (optional)
 
 ## Deploy blueprint (POC)
 
