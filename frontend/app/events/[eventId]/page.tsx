@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { headers } from "next/headers";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import Navbar from "@/app/components/navbar";
 import { toBrowserSafeBackendUrl } from "@/lib/api-base";
@@ -133,26 +134,37 @@ export default async function EventDetailPage({
             </div>
 
             {/* Organizer */}
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-200 text-sm font-bold text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300">
-                {organizer
-                  ? `${organizer.first_name[0]}${organizer.last_name[0]}`
-                  : (
+            <Link
+              href={`/profile/${event.organizer_user_id}`}
+              className="group inline-flex items-center gap-3 rounded-lg border border-zinc-200 px-3 py-2 text-left transition-colors hover:border-zinc-800 hover:bg-zinc-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 dark:border-zinc-800 dark:hover:border-zinc-200 dark:hover:bg-zinc-200 dark:hover:text-black"
+            >
+              <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-zinc-200 text-sm font-bold text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300">
+                {organizer?.profile_photo_url ? (
+                  <Image
+                    src={toBrowserSafeBackendUrl(organizer.profile_photo_url)}
+                    alt=""
+                    width={40}
+                    height={40}
+                    className="h-full w-full object-cover"
+                  />
+                ) : organizer ? (
+                  `${organizer.first_name[0]}${organizer.last_name[0]}`
+                ) : (
                     <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
                       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                       <circle cx="12" cy="7" r="4" />
                     </svg>
-                  )}
+                )}
               </div>
               <div className="text-sm">
                 <p className="font-medium">Organized by</p>
-                <p className="text-zinc-500 dark:text-zinc-400">
+                <p className="text-zinc-500 transition-colors group-hover:text-zinc-200 dark:text-zinc-400 dark:group-hover:text-zinc-700">
                   {organizer
                     ? `${organizer.first_name} ${organizer.last_name}`
                     : `Organizer #${event.organizer_user_id}`}
                 </p>
               </div>
-            </div>
+            </Link>
 
             {/* About */}
             <section>
