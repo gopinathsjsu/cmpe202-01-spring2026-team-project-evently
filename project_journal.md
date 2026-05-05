@@ -126,6 +126,22 @@
 - AWS Deployment & Local Deployment functionality
 - General Debugging
 
+## 4/28 - 5/4
+
+### Finished
+
+- integrate geocode api into event creation
+- add redis and notification workers to CDK deployment
+- Better event create flow/redirects
+- Add ability to change event image
+- Add ability to edit event page
+- geocoding frontend routing bugfix
+- fix empty discover page in production
+- add images to pre-made events
+- have "organized by" link to organizers profile page
+- fix email notification secret for AWS
+- tested end-to-end functionality
+
 # XP Core Values 
 ### Simplicity:
 - As a team we focused on incremental changes and improvements to the application each sprint. We broke up the project by features and we specifically targeted one feature per person per week. Every feature was planned through discussion and no one did more than what was decided as a team. This allowed us to ensure the feature was fully functioning via reviewed pull requests before adding to the application.
