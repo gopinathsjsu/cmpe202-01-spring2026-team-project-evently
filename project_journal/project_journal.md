@@ -1,5 +1,7 @@
 # Scrum Report
 
+We used this repo's [issues](lhttps://github.com/gopinathsjsu/cmpe202-01-spring2026-team-project-evently/issues) and a [GitHub project](https://github.com/orgs/gopinathsjsu/projects/145/views/1) to keep track of our backlog.
+
 ## Week 2/8 - 2/14
 
 ### Finished:
